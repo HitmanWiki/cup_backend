@@ -5,11 +5,7 @@
       "src": "api/index.js",
       "use": "@vercel/node",
       "config": {
-        "maxLambdaSize": "50mb",
-        "includeFiles": [
-          "prisma/**",
-          ".env"
-        ]
+        "maxLambdaSize": "15mb"
       }
     }
   ],
@@ -20,7 +16,6 @@
     }
   ],
   "env": {
-    "NODE_ENV": "production",
-    "DATABASE_URL": "@database_url"
+    "NODE_ENV": "production"
   }
 }
