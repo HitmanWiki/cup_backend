@@ -18,10 +18,10 @@ app.use(compression());
 app.use(express.json());
 
 // Import your routes
-const authRoutes = require('./src/routes/auth');
-const matchRoutes = require('./src/routes/matches');
-const betRoutes = require('./src/routes/bets');
-const leaderboardRoutes = require('./src/routes/leaderboard');
+const authRoutes = require('../src/routes/auth');
+const matchRoutes = require('../src/routes/matches');
+const betRoutes = require('../src/routes/bets');
+const leaderboardRoutes = require('../src/routes/leaderboard');
 
 // Use routes
 app.use('/api/v1/auth', authRoutes);
