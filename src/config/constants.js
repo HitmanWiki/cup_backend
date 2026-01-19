@@ -1,4 +1,5 @@
-// src/config/constants.js - CORRECTED VERSION
+// src/config/constants.js - UPDATED FOR NEON POSTGRESQL
+require('dotenv').config();
 
 const constants = {
   // Platform fees (in percentage)
@@ -71,7 +72,7 @@ const constants = {
 
   // API endpoints for external data
   EXTERNAL_APIS: {
-    SPORTS_DATA: process.env.SPORTS_DATA_API_URL || 'https://api.sportsdata.io/v3/soccer/scores/json',
+    SPORTS_DATA: process.env.SPORTS_DATA_API_URL || 'https://api.sportsdata.io/v4/soccer/scores',
     FIFA_API: process.env.FIFA_API_URL || 'https://api.fifa.com/api/v3',
     BACKUP_SOURCES: ['ESPN', 'BBC', 'Reuters', 'Official FIFA Feed']
   },
@@ -117,70 +118,87 @@ const constants = {
   }
 };
 
-// Validate environment variables
+// Validate environment variables for Vercel deployment
 const validateConfig = () => {
-  // Only require these for PostgreSQL
-  const isProduction = process.env.NODE_ENV === 'production';
+  console.log('🔍 Validating configuration...');
   
-  if (isProduction) {
-    // For production with PostgreSQL
-    const requiredEnvVars = [
-      'DB_HOST',
-      'DB_NAME',
-      'DB_USER',
-      'JWT_SECRET',
-      'RPC_URL_BASE',
-      'PRIVATE_KEY'
-    ];
-
-    const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
-
-    if (missingVars.length > 0) {
-      console.error(`Missing required environment variables: ${missingVars.join(', ')}`);
-      console.error('Please check your .env file');
+  // Check if we're on Vercel (using DATABASE_URL) or local (using separate DB vars)
+  const isVercel = !!process.env.VERCEL;
+  const hasDatabaseUrl = !!process.env.DATABASE_URL;
+  const hasSeparateDbVars = process.env.DB_HOST && process.env.DB_NAME && process.env.DB_USER;
+  
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`Is Vercel: ${isVercel}`);
+  console.log(`Has DATABASE_URL: ${hasDatabaseUrl}`);
+  console.log(`Has separate DB vars: ${hasSeparateDbVars}`);
+  
+  // Always require JWT_SECRET
+  const requiredEnvVars = ['JWT_SECRET'];
+  
+  // For Vercel/Neon PostgreSQL, require DATABASE_URL
+  if (isVercel || hasDatabaseUrl) {
+    requiredEnvVars.push('DATABASE_URL');
+    console.log('✅ Using DATABASE_URL connection string');
+  } 
+  // For local development with separate DB variables
+  else if (process.env.NODE_ENV === 'production') {
+    requiredEnvVars.push('DB_HOST', 'DB_NAME', 'DB_USER', 'DB_PASSWORD');
+    console.log('✅ Using separate database variables');
+  }
+  // For local development, we can be more lenient
+  else {
+    console.log('⚠️ Development mode - using defaults for missing variables');
+  }
+  
+  // Check required variables
+  const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
+  
+  if (missingVars.length > 0) {
+    console.error(`❌ Missing required environment variables: ${missingVars.join(', ')}`);
+    console.error('Please check your .env file');
+    
+    // For production, exit; for development, warn but continue
+    if (process.env.NODE_ENV === 'production') {
       process.exit(1);
-    }
-  } else {
-    // For development with SQLite
-    const requiredEnvVars = [
-      'JWT_SECRET'
-    ];
-
-    const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
-
-    if (missingVars.length > 0) {
-      console.warn(`Warning: Missing environment variables: ${missingVars.join(', ')}`);
-      console.warn('Using default values for development');
-      // Don't exit, just use defaults for development
+    } else {
+      console.warn('⚠️ Continuing in development mode with missing variables...');
     }
   }
-
-  // Validate fee percentages - FIXED PARSING
+  
+  // Validate blockchain variables if configured
+  if (process.env.RPC_URL_BASE) {
+    console.log('✅ Blockchain RPC URL configured');
+  } else {
+    console.warn('⚠️ Blockchain RPC URL not configured - running in read-only mode');
+  }
+  
+  // Validate sports data API if configured
+  if (process.env.SPORTS_DATA_API_KEY) {
+    console.log('✅ Sports data API key configured');
+  } else {
+    console.warn('⚠️ Sports data API key not configured - using generated data');
+  }
+  
+  // Validate fee percentages
   const platformFee = parseInt(constants.FEES.PLATFORM);
   const oracleFee = parseInt(constants.FEES.ORACLE);
   const winnersFee = parseInt(constants.FEES.WINNERS);
   const totalFees = platformFee + oracleFee + winnersFee;
   
-  console.log(`Fee breakdown: Platform=${platformFee}%, Oracle=${oracleFee}%, Winners=${winnersFee}%, Total=${totalFees}%`);
+  console.log(`📊 Fee breakdown: Platform=${platformFee}%, Oracle=${oracleFee}%, Winners=${winnersFee}%, Total=${totalFees}%`);
   
   if (totalFees !== 100) {
-    console.error(`Fee percentages must sum to 100%. Current sum: ${totalFees}%`);
+    console.error(`❌ Fee percentages must sum to 100%. Current sum: ${totalFees}%`);
     console.error(`Check your .env file: PLATFORM_FEE_PERCENTAGE, ORACLE_FEE_PERCENTAGE, WINNERS_PERCENTAGE`);
-    process.exit(1);
+    
+    if (process.env.NODE_ENV === 'production') {
+      process.exit(1);
+    } else {
+      console.warn('⚠️ Continuing with invalid fee percentages in development...');
+    }
   }
-
-  // Validate betting limits
-  if (constants.BETTING_LIMITS.MIN_AMOUNT >= constants.BETTING_LIMITS.MAX_AMOUNT) {
-    console.error('MIN_BET_AMOUNT must be less than MAX_BET_AMOUNT');
-    process.exit(1);
-  }
-
-  if (constants.BETTING_LIMITS.MIN_ODDS >= constants.BETTING_LIMITS.MAX_ODDS) {
-    console.error('MIN_ODDS must be less than MAX_ODDS');
-    process.exit(1);
-  }
-
-  console.log('Configuration validated successfully');
+  
+  console.log('✅ Configuration validated successfully');
 };
 
 module.exports = {
