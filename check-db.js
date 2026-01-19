@@ -1,76 +1,36 @@
-// test-match-unique.js
-const Match = require('./src/models/Match');
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+// check-endpoints.js
+const axios = require('axios');
 
-async function testMatchWithUniqueId() {
-  console.log('🧪 Testing Match model with UNIQUE ID...\n');
+const API_URL = 'https://cup-backend-red.vercel.app';
+
+async function checkAvailableEndpoints() {
+  console.log('🔍 Checking available endpoints...\n');
   
-  const timestamp = Date.now();
-  const testMatchId = timestamp % 1000000; // Unique but smaller ID
+  const endpoints = [
+    '/',
+    '/api/health',
+    '/api/debug/matches',
+    '/api/v1/matches/upcoming',
+    '/api/v1/matches',
+    '/api/v1/auth',
+    '/api/v1/bets'
+  ];
   
-  try {
-    // 1. Check if match already exists
-    const existing = await Match.exists(testMatchId);
-    if (existing) {
-      console.log('⚠️  Match already exists, deleting...');
-      await Match.delete(testMatchId);
-    }
-    
-    // 2. Create a match
-    const matchData = {
-      match_id: testMatchId,
-      team_a: 'Test Team A',
-      team_b: 'Test Team B',
-      match_date: new Date('2024-12-25T20:00:00Z'),
-      venue: 'Test Stadium',
-      group_name: 'Test Group',
-      odds_team_a: 1.8,
-      odds_draw: 3.2,
-      odds_team_b: 2.1,
-      status: 'upcoming'
-    };
-    
-    const match = await Match.create(matchData);
-    console.log('✅ Created match with ID:', match.match_id);
-    
-    // 3. Test the problematic methods
-    console.log('\n📋 Testing fixed methods:');
-    
-    // Test getPopularMatches
-    console.log('1. Testing getPopularMatches...');
+  for (const endpoint of endpoints) {
     try {
-      const popular = await Match.getPopularMatches(3);
-      console.log('   ✅ SUCCESS: Works!');
-      console.log('   Found:', popular.length, 'matches');
-    } catch (error) {
-      console.log('   ❌ FAILED:', error.message);
-    }
-    
-    // Test getMatchStats
-    console.log('\n2. Testing getMatchStats...');
-    try {
-      const stats = await Match.getMatchStats(testMatchId);
-      console.log('   ✅ SUCCESS:', stats ? 'Works!' : 'No stats');
-      if (stats) {
-        console.log('   Total bets:', stats.total_bets || 0);
+      const response = await axios.get(`${API_URL}${endpoint}`, {
+        timeout: 5000,
+        validateStatus: (status) => true // Accept all status codes
+      });
+      console.log(`${endpoint}: ${response.status} ${response.statusText}`);
+      if (response.status === 200 && response.data) {
+        console.log(`   Response keys:`, Object.keys(response.data).join(', '));
       }
     } catch (error) {
-      console.log('   ❌ FAILED:', error.message);
+      console.log(`${endpoint}: ERROR - ${error.message}`);
     }
-    
-    // Cleanup
-    await Match.delete(testMatchId);
-    console.log('\n✅ Deleted test match');
-    
-    console.log('\n🎉 Match model tests completed!');
-    
-  } catch (error) {
-    console.error('❌ Test failed:', error.message);
-    console.error(error);
-  } finally {
-    await prisma.$disconnect();
+    await new Promise(resolve => setTimeout(resolve, 100)); // Small delay
   }
 }
 
-testMatchWithUniqueId();
+checkAvailableEndpoints();
