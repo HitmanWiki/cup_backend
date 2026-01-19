@@ -1,34 +1,40 @@
-// test-routes.js
-console.log('Testing route imports...\n');
+// check-production.js
+const axios = require('axios');
 
-try {
-  console.log('1. Testing authRoutes import...');
-  const authRoutes = require('./src/routes/auth');
-  console.log('✅ authRoutes imported successfully');
-  console.log('   Type:', typeof authRoutes);
-  console.log('   Is router:', authRoutes.name || 'unknown');
-} catch (error) {
-  console.log('❌ authRoutes import failed:', error.message);
+async function checkProduction() {
+  const baseUrl = 'https://cup-backend-red.vercel.app';
+  
+  console.log('🔍 Checking production deployment...\n');
+  
+  const endpoints = [
+    '/',
+    '/api',
+    '/api/v4',
+    '/api/v4/matches',
+    '/api/v1/matches',
+    '/api/v4/matches/upcoming',
+    '/api/debug/matches',
+    '/health'
+  ];
+  
+  for (const endpoint of endpoints) {
+    try {
+      const response = await axios.get(baseUrl + endpoint, {
+        timeout: 10000,
+        validateStatus: null // Don't throw on any status
+      });
+      
+      console.log(`${endpoint}: ${response.status}`);
+      
+      if (response.status === 200 && response.data) {
+        console.log('Response:', JSON.stringify(response.data, null, 2).substring(0, 200) + '...');
+      }
+      
+    } catch (error) {
+      console.log(`${endpoint}: ERROR - ${error.message}`);
+    }
+    console.log('---');
+  }
 }
 
-console.log('\n2. Testing matchRoutes import...');
-try {
-  const matchRoutes = require('./src/routes/matches');
-  console.log('✅ matchRoutes imported successfully');
-  console.log('   Type:', typeof matchRoutes);
-} catch (error) {
-  console.log('❌ matchRoutes import failed:', error.message);
-}
-
-console.log('\n3. Checking file structure...');
-const fs = require('fs');
-const path = require('path');
-
-const routesDir = path.join(__dirname, 'src', 'routes');
-console.log('Routes directory:', routesDir);
-console.log('Exists:', fs.existsSync(routesDir));
-
-if (fs.existsSync(routesDir)) {
-  const files = fs.readdirSync(routesDir);
-  console.log('Files in routes directory:', files);
-}
+checkProduction();
