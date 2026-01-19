@@ -17,7 +17,7 @@ class Web3Service {
   async initialize() {
     try {
       // Determine network from environment
-      const networkName = process.env.NETWORK || 'sepolia';
+      const networkName = process.env.NETWORK || 'base';
       const networkConfig = constants.NETWORKS[networkName.toUpperCase()];
       
       if (!networkConfig) {

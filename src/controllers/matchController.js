@@ -517,6 +517,73 @@ class MatchController {
     }
   }
 
+  // Add this method in src/controllers/matchController.js
+// Right after getMatchesByGroup method:
+
+static async getGroups(req, res) {
+  try {
+    // Get all matches
+    const result = await Match.findAll();
+    
+    // Group matches by group name
+    const groupedMatches = {};
+    const uniqueGroups = new Set();
+    
+    result.data.forEach(match => {
+      if (match.group_name && match.group_name.trim() !== '') {
+        uniqueGroups.add(match.group_name);
+        
+        if (!groupedMatches[match.group_name]) {
+          groupedMatches[match.group_name] = [];
+        }
+        
+        groupedMatches[match.group_name].push({
+          match_id: match.match_id,
+          team_a: match.team_a,
+          team_b: match.team_b,
+          match_date: match.match_date,
+          venue: match.venue,
+          status: match.status,
+          odds_team_a: match.odds_team_a,
+          odds_draw: match.odds_draw,
+          odds_team_b: match.odds_team_b
+        });
+      }
+    });
+    
+    // Get unique teams for each group
+    const groupsWithTeams = {};
+    Object.keys(groupedMatches).forEach(groupName => {
+      const teams = new Set();
+      groupedMatches[groupName].forEach(match => {
+        teams.add(match.team_a);
+        teams.add(match.team_b);
+      });
+      
+      groupsWithTeams[groupName] = {
+        matches: groupedMatches[groupName],
+        teams: Array.from(teams),
+        matchCount: groupedMatches[groupName].length
+      };
+    });
+    
+    return res.status(200).json({
+      success: true,
+      data: {
+        groups: groupsWithTeams,
+        groupNames: Array.from(uniqueGroups),
+        totalGroups: uniqueGroups.size
+      }
+    });
+  } catch (error) {
+    logger.error('Get groups error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get groups'
+    });
+  }
+}
+
   // Delete match (admin only)
   static async deleteMatch(req, res) {
     try {

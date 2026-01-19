@@ -1,40 +1,29 @@
-// src/models/Match.js
-const db = require('../config/database');
+// src/models/Match.js - COMPLETE Prisma Version (CORRECTED)
+const prisma = require('../config/database');
 const { constants } = require('../config/constants');
 const logger = require('../utils/logger');
 
 class Match {
-  static tableName = 'matches';
-
   static async create(matchData) {
     try {
-      const query = `
-        INSERT INTO ${this.tableName} 
-        (
-          match_id, team_a, team_b, match_date, venue, group_name,
-          odds_team_a, odds_draw, odds_team_b, status, total_staked,
-          created_at, updated_at
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
-        RETURNING *
-      `;
-
-      const values = [
-        matchData.match_id,
-        matchData.team_a,
-        matchData.team_b,
-        matchData.match_date,
-        matchData.venue || null,
-        matchData.group_name || null,
-        matchData.odds_team_a,
-        matchData.odds_draw,
-        matchData.odds_team_b,
-        matchData.status || constants.MATCH_STATUS.UPCOMING,
-        matchData.total_staked || 0
-      ];
-
-      const result = await db.query(query, values);
-      return result.rows[0];
+      const match = await prisma.match.create({
+        data: {
+          match_id: parseInt(matchData.match_id),
+          team_a: matchData.team_a,
+          team_b: matchData.team_b,
+          match_date: new Date(matchData.match_date),
+          venue: matchData.venue || null,
+          group_name: matchData.group_name || null,
+          odds_team_a: parseFloat(matchData.odds_team_a),
+          odds_draw: parseFloat(matchData.odds_draw),
+          odds_team_b: parseFloat(matchData.odds_team_b),
+          status: matchData.status || constants.MATCH_STATUS.UPCOMING,
+          total_staked: matchData.total_staked || 0,
+          created_at: new Date(),
+          updated_at: new Date()
+        }
+      });
+      return match;
     } catch (error) {
       logger.error('Error creating match:', error);
       throw error;
@@ -43,13 +32,10 @@ class Match {
 
   static async findById(matchId) {
     try {
-      const query = `
-        SELECT * FROM ${this.tableName} 
-        WHERE match_id = $1
-      `;
-
-      const result = await db.query(query, [matchId]);
-      return result.rows[0] || null;
+      const match = await prisma.match.findFirst({
+        where: { match_id: parseInt(matchId) }
+      });
+      return match;
     } catch (error) {
       logger.error('Error finding match by ID:', error);
       throw error;
@@ -67,54 +53,48 @@ class Match {
         has_result
       } = filters;
 
-      const {
-        page = 1,
-        limit = constants.PAGINATION.DEFAULT_LIMIT,
-        sort_by = 'match_date',
-        sort_order = 'ASC'
-      } = pagination;
-
-      const offset = (page - 1) * limit;
-      const conditions = [];
-      const values = [];
-      let index = 1;
-
-      if (status) {
-        conditions.push(`status = $${index}`);
-        values.push(status);
-        index++;
-      }
-
-      if (group_name) {
-        conditions.push(`group_name = $${index}`);
-        values.push(group_name);
-        index++;
-      }
-
+      const page = parseInt(pagination.page) || 1;
+      const limit = parseInt(pagination.limit) || constants.PAGINATION.DEFAULT_LIMIT;
+      const sort_by = pagination.sort_by || 'match_date';
+      const sort_order = pagination.sort_order || 'asc';
+      
+      const skip = (page - 1) * limit;
+      
+      // Build where clause
+      const where = {};
+      
+      if (status) where.status = status;
+      if (group_name) where.group_name = group_name;
+      
       if (team) {
-        conditions.push(`(team_a ILIKE $${index} OR team_b ILIKE $${index})`);
-        values.push(`%${team}%`);
-        index++;
+        where.OR = [
+          { team_a: { contains: team, mode: 'insensitive' } },
+          { team_b: { contains: team, mode: 'insensitive' } }
+        ];
       }
-
+      
       if (start_date) {
-        conditions.push(`match_date >= $${index}`);
-        values.push(start_date);
-        index++;
+        where.match_date = {
+          gte: new Date(start_date)
+        };
       }
-
+      
       if (end_date) {
-        conditions.push(`match_date <= $${index}`);
-        values.push(end_date);
-        index++;
+        if (where.match_date) {
+          where.match_date.lte = new Date(end_date);
+        } else {
+          where.match_date = {
+            lte: new Date(end_date)
+          };
+        }
       }
-
+      
       if (has_result === true) {
-        conditions.push(`result IS NOT NULL`);
+        where.result = { not: null };
       } else if (has_result === false) {
-        conditions.push(`result IS NULL`);
+        where.result = null;
       }
-
+      
       // Validate sort column
       const validSortColumns = [
         'match_id', 'match_date', 'created_at', 'updated_at',
@@ -122,36 +102,21 @@ class Match {
       ];
       
       const sortColumn = validSortColumns.includes(sort_by) ? sort_by : 'match_date';
-      const order = sort_order.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
-
-      let whereClause = '';
-      if (conditions.length > 0) {
-        whereClause = `WHERE ${conditions.join(' AND ')}`;
-      }
-
+      const order = sort_order.toLowerCase() === 'desc' ? 'desc' : 'asc';
+      
       // Get total count
-      const countQuery = `
-        SELECT COUNT(*) as total 
-        FROM ${this.tableName} 
-        ${whereClause}
-      `;
-
-      const countResult = await db.query(countQuery, values);
-      const total = parseInt(countResult.rows[0].total);
-
+      const total = await prisma.match.count({ where });
+      
       // Get paginated results
-      const dataQuery = `
-        SELECT * FROM ${this.tableName} 
-        ${whereClause}
-        ORDER BY ${sortColumn} ${order}
-        LIMIT $${index} OFFSET $${index + 1}
-      `;
-
-      const dataValues = [...values, limit, offset];
-      const dataResult = await db.query(dataQuery, dataValues);
-
+      const matches = await prisma.match.findMany({
+        where,
+        orderBy: { [sortColumn]: order },
+        skip,
+        take: limit
+      });
+      
       return {
-        data: dataResult.rows,
+        data: matches,
         pagination: {
           page,
           limit,
@@ -167,33 +132,24 @@ class Match {
 
   static async update(matchId, updateData) {
     try {
-      const fields = [];
-      const values = [];
-      let index = 1;
-
+      // Filter out problematic columns
+      const columnsToExclude = ['external_id', 'competition_id', 'season', 'api_data'];
+      
+      const data = {};
       Object.keys(updateData).forEach(key => {
-        if (updateData[key] !== undefined) {
-          fields.push(`${key} = $${index}`);
-          values.push(updateData[key]);
-          index++;
+        if (updateData[key] !== undefined && !columnsToExclude.includes(key)) {
+          data[key] = updateData[key];
         }
       });
-
-      if (fields.length === 0) {
-        throw new Error('No fields to update');
-      }
-
-      values.push(matchId);
       
-      const query = `
-        UPDATE ${this.tableName} 
-        SET ${fields.join(', ')}, updated_at = NOW()
-        WHERE match_id = $${index}
-        RETURNING *
-      `;
-
-      const result = await db.query(query, values);
-      return result.rows[0] || null;
+      // Always update timestamp
+      data.updated_at = new Date();
+      
+      const match = await prisma.match.update({
+        where: { match_id: parseInt(matchId) },
+        data
+      });
+      return match;
     } catch (error) {
       logger.error('Error updating match:', error);
       throw error;
@@ -202,15 +158,16 @@ class Match {
 
   static async updateTotalStaked(matchId, amount) {
     try {
-      const query = `
-        UPDATE ${this.tableName} 
-        SET total_staked = total_staked + $1, updated_at = NOW()
-        WHERE match_id = $2
-        RETURNING *
-      `;
-
-      const result = await db.query(query, [amount, matchId]);
-      return result.rows[0] || null;
+      const match = await prisma.match.update({
+        where: { match_id: parseInt(matchId) },
+        data: {
+          total_staked: {
+            increment: parseFloat(amount)
+          },
+          updated_at: new Date()
+        }
+      });
+      return match;
     } catch (error) {
       logger.error('Error updating match total staked:', error);
       throw error;
@@ -219,35 +176,20 @@ class Match {
 
   static async setResult(matchId, result, verifiedBy, txHash = null) {
     try {
-      const query = `
-        UPDATE ${this.tableName} 
-        SET 
-          result = $1,
-          status = $2,
-          updated_at = NOW()
-        WHERE match_id = $3
-        RETURNING *
-      `;
-
-      const values = [
-        result,
-        constants.MATCH_STATUS.FINISHED,
-        matchId
-      ];
-
-      const resultData = await db.query(query, values);
-
-      // Record result in results table
-      if (resultData.rows[0]) {
-        await db.query(
-          `INSERT INTO results 
-           (match_id, result, verified_by, oracle_tx_hash, verified_at)
-           VALUES ($1, $2, $3, $4, NOW())`,
-          [matchId, result, verifiedBy, txHash]
-        );
-      }
-
-      return resultData.rows[0];
+      const match = await prisma.match.update({
+        where: { match_id: parseInt(matchId) },
+        data: {
+          result: result,
+          status: constants.MATCH_STATUS.FINISHED,
+          updated_at: new Date()
+        }
+      });
+      
+      // Record result in results table (if you have one)
+      // Note: You'll need to create a results table in Prisma schema
+      // For now, we'll just update the match
+      
+      return match;
     } catch (error) {
       logger.error('Error setting match result:', error);
       throw error;
@@ -256,20 +198,28 @@ class Match {
 
   static async getUpcomingMatches(limit = 10) {
     try {
-      const query = `
-        SELECT * FROM ${this.tableName} 
-        WHERE 
-          status = $1 AND 
-          match_date > NOW()
-        ORDER BY match_date ASC
-        LIMIT $2
-      `;
-
-      const result = await db.query(query, [
-        constants.MATCH_STATUS.UPCOMING,
-        limit
-      ]);
-      return result.rows;
+      const matches = await prisma.match.findMany({
+        where: {
+          status: {
+            equals: constants.MATCH_STATUS.UPCOMING,
+            mode: 'insensitive'
+          }
+        },
+        orderBy: { match_date: 'asc' },
+        take: parseInt(limit)
+      });
+      
+      console.log(`✅ Found ${matches.length} upcoming matches in database`);
+      if (matches.length > 0) {
+        console.log('Sample match from DB:', {
+          id: matches[0].match_id,
+          teams: `${matches[0].team_a} vs ${matches[0].team_b}`,
+          group: matches[0].group_name,
+          status: matches[0].status
+        });
+      }
+      
+      return matches;
     } catch (error) {
       logger.error('Error getting upcoming matches:', error);
       throw error;
@@ -278,14 +228,13 @@ class Match {
 
   static async getLiveMatches() {
     try {
-      const query = `
-        SELECT * FROM ${this.tableName} 
-        WHERE status = $1
-        ORDER BY match_date ASC
-      `;
-
-      const result = await db.query(query, [constants.MATCH_STATUS.LIVE]);
-      return result.rows;
+      const matches = await prisma.match.findMany({
+        where: {
+          status: constants.MATCH_STATUS.LIVE
+        },
+        orderBy: { match_date: 'asc' }
+      });
+      return matches;
     } catch (error) {
       logger.error('Error getting live matches:', error);
       throw error;
@@ -294,18 +243,14 @@ class Match {
 
   static async getFinishedMatches(limit = 10) {
     try {
-      const query = `
-        SELECT * FROM ${this.tableName} 
-        WHERE status = $1
-        ORDER BY match_date DESC
-        LIMIT $2
-      `;
-
-      const result = await db.query(query, [
-        constants.MATCH_STATUS.FINISHED,
-        limit
-      ]);
-      return result.rows;
+      const matches = await prisma.match.findMany({
+        where: {
+          status: constants.MATCH_STATUS.FINISHED
+        },
+        orderBy: { match_date: 'desc' },
+        take: parseInt(limit)
+      });
+      return matches;
     } catch (error) {
       logger.error('Error getting finished matches:', error);
       throw error;
@@ -314,14 +259,13 @@ class Match {
 
   static async getMatchesByGroup(groupName) {
     try {
-      const query = `
-        SELECT * FROM ${this.tableName} 
-        WHERE group_name = $1
-        ORDER BY match_date ASC
-      `;
-
-      const result = await db.query(query, [groupName]);
-      return result.rows;
+      const matches = await prisma.match.findMany({
+        where: {
+          group_name: groupName
+        },
+        orderBy: { match_date: 'asc' }
+      });
+      return matches;
     } catch (error) {
       logger.error('Error getting matches by group:', error);
       throw error;
@@ -330,25 +274,43 @@ class Match {
 
   static async getMatchStats(matchId) {
     try {
-      const query = `
+      // FIXED: Added explicit column names to avoid ambiguity
+      const rawQuery = `
         SELECT 
-          m.*,
+          m.id,
+          m.match_id,
+          m.team_a,
+          m.team_b,
+          m.match_date,
+          m.venue,
+          m.group_name,
+          m.odds_team_a,
+          m.odds_draw,
+          m.odds_team_b,
+          m.status,
+          m.result,
+          m.total_staked as match_total_staked,
+          m.archived,
+          m.created_at,
+          m.updated_at,
           COUNT(b.id) as total_bets,
-          SUM(b.amount) as total_amount,
+          COALESCE(SUM(b.amount), 0) as total_amount,
           COUNT(CASE WHEN b.outcome = 0 THEN 1 END) as bets_team_a,
           COUNT(CASE WHEN b.outcome = 1 THEN 1 END) as bets_draw,
           COUNT(CASE WHEN b.outcome = 2 THEN 1 END) as bets_team_b,
-          SUM(CASE WHEN b.outcome = 0 THEN b.amount END) as amount_team_a,
-          SUM(CASE WHEN b.outcome = 1 THEN b.amount END) as amount_draw,
-          SUM(CASE WHEN b.outcome = 2 THEN b.amount END) as amount_team_b
-        FROM ${this.tableName} m
+          COALESCE(SUM(CASE WHEN b.outcome = 0 THEN b.amount END), 0) as amount_team_a,
+          COALESCE(SUM(CASE WHEN b.outcome = 1 THEN b.amount END), 0) as amount_draw,
+          COALESCE(SUM(CASE WHEN b.outcome = 2 THEN b.amount END), 0) as amount_team_b
+        FROM matches m
         LEFT JOIN bets b ON m.match_id = b.match_id
         WHERE m.match_id = $1
-        GROUP BY m.match_id
+        GROUP BY m.id, m.match_id, m.team_a, m.team_b, m.match_date, m.venue, 
+                 m.group_name, m.odds_team_a, m.odds_draw, m.odds_team_b, 
+                 m.status, m.result, m.total_staked, m.archived, m.created_at, m.updated_at
       `;
-
-      const result = await db.query(query, [matchId]);
-      return result.rows[0] || null;
+      
+      const stats = await prisma.$queryRawUnsafe(rawQuery, parseInt(matchId));
+      return stats[0] || null;
     } catch (error) {
       logger.error('Error getting match stats:', error);
       throw error;
@@ -357,42 +319,61 @@ class Match {
 
   static async getPopularMatches(limit = 5) {
     try {
-      const query = `
+      // FIXED: Added alias for SUM to avoid ambiguity
+      const rawQuery = `
         SELECT 
           m.*,
           COUNT(b.id) as bet_count,
-          SUM(b.amount) as total_staked
-        FROM ${this.tableName} m
+          COALESCE(SUM(b.amount), 0) as bet_total_staked
+        FROM matches m
         LEFT JOIN bets b ON m.match_id = b.match_id
         WHERE m.status = $1
-        GROUP BY m.match_id
-        ORDER BY total_staked DESC NULLS LAST
+        GROUP BY m.id, m.match_id, m.team_a, m.team_b, m.match_date, m.venue, 
+                 m.group_name, m.odds_team_a, m.odds_draw, m.odds_team_b, 
+                 m.status, m.result, m.total_staked, m.archived, m.created_at, m.updated_at
+        ORDER BY bet_total_staked DESC
         LIMIT $2
       `;
-
-      const result = await db.query(query, [
+      
+      const popularMatches = await prisma.$queryRawUnsafe(
+        rawQuery, 
         constants.MATCH_STATUS.UPCOMING,
-        limit
-      ]);
-      return result.rows;
+        parseInt(limit)
+      );
+      return popularMatches;
     } catch (error) {
       logger.error('Error getting popular matches:', error);
       throw error;
     }
   }
 
+  static async getMatchWithScores(matchId) {
+    try {
+      // Since you don't have a results table yet, we'll just return the match
+      // You can add a results table to your schema later
+      const match = await prisma.match.findFirst({
+        where: { match_id: parseInt(matchId) }
+      });
+      return match;
+    } catch (error) {
+      logger.error('Error getting match with scores:', error);
+      throw error;
+    }
+  }
+
   static async getCountByStatus() {
     try {
-      const query = `
-        SELECT 
-          status,
-          COUNT(*) as count
-        FROM ${this.tableName}
-        GROUP BY status
-      `;
-
-      const result = await db.query(query);
-      return result.rows;
+      const counts = await prisma.match.groupBy({
+        by: ['status'],
+        _count: {
+          id: true
+        }
+      });
+      
+      return counts.map(item => ({
+        status: item.status,
+        count: item._count.id
+      }));
     } catch (error) {
       logger.error('Error getting match count by status:', error);
       throw error;
@@ -401,14 +382,10 @@ class Match {
 
   static async delete(matchId) {
     try {
-      const query = `
-        DELETE FROM ${this.tableName} 
-        WHERE match_id = $1
-        RETURNING *
-      `;
-
-      const result = await db.query(query, [matchId]);
-      return result.rows[0] || null;
+      const match = await prisma.match.delete({
+        where: { match_id: parseInt(matchId) }
+      });
+      return match;
     } catch (error) {
       logger.error('Error deleting match:', error);
       throw error;
@@ -417,15 +394,10 @@ class Match {
 
   static async exists(matchId) {
     try {
-      const query = `
-        SELECT EXISTS(
-          SELECT 1 FROM ${this.tableName} 
-          WHERE match_id = $1
-        )
-      `;
-
-      const result = await db.query(query, [matchId]);
-      return result.rows[0].exists;
+      const count = await prisma.match.count({
+        where: { match_id: parseInt(matchId) }
+      });
+      return count > 0;
     } catch (error) {
       logger.error('Error checking if match exists:', error);
       throw error;
@@ -434,17 +406,183 @@ class Match {
 
   static async getTotalVolume() {
     try {
-      const query = `
-        SELECT 
-          COALESCE(SUM(total_staked), 0) as total_volume,
-          COUNT(*) as total_matches
-        FROM ${this.tableName}
-      `;
-
-      const result = await db.query(query);
-      return result.rows[0];
+      const result = await prisma.match.aggregate({
+        _sum: {
+          total_staked: true
+        },
+        _count: {
+          id: true
+        }
+      });
+      
+      return {
+        total_volume: result._sum.total_staked || 0,
+        total_matches: result._count.id
+      };
     } catch (error) {
       logger.error('Error getting total volume:', error);
+      throw error;
+    }
+  }
+
+  // ADDITIONAL METHODS FOR COMPLETENESS
+  
+  static async getTodaysMatches() {
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      
+      const matches = await prisma.match.findMany({
+        where: {
+          match_date: {
+            gte: today,
+            lt: tomorrow
+          }
+        },
+        orderBy: { match_date: 'asc' }
+      });
+      return matches;
+    } catch (error) {
+      logger.error('Error getting today\'s matches:', error);
+      throw error;
+    }
+  }
+
+  static async getMatchesByDate(date) {
+    try {
+      const startDate = new Date(date);
+      startDate.setHours(0, 0, 0, 0);
+      
+      const endDate = new Date(startDate);
+      endDate.setDate(endDate.getDate() + 1);
+      
+      const matches = await prisma.match.findMany({
+        where: {
+          match_date: {
+            gte: startDate,
+            lt: endDate
+          }
+        },
+        orderBy: { match_date: 'asc' }
+      });
+      return matches;
+    } catch (error) {
+      logger.error('Error getting matches by date:', error);
+      throw error;
+    }
+  }
+
+  static async getRecentMatches(limit = 20) {
+    try {
+      const matches = await prisma.match.findMany({
+        orderBy: { created_at: 'desc' },
+        take: parseInt(limit)
+      });
+      return matches;
+    } catch (error) {
+      logger.error('Error getting recent matches:', error);
+      throw error;
+    }
+  }
+
+  static async getMatchesWithoutResults() {
+    try {
+      const matches = await prisma.match.findMany({
+        where: {
+          status: constants.MATCH_STATUS.FINISHED,
+          result: null
+        },
+        orderBy: { match_date: 'desc' }
+      });
+      return matches;
+    } catch (error) {
+      logger.error('Error getting matches without results:', error);
+      throw error;
+    }
+  }
+
+  static async getMatchOdds(matchId) {
+    try {
+      const match = await prisma.match.findFirst({
+        where: { match_id: parseInt(matchId) },
+        select: {
+          odds_team_a: true,
+          odds_draw: true,
+          odds_team_b: true
+        }
+      });
+      return match;
+    } catch (error) {
+      logger.error('Error getting match odds:', error);
+      throw error;
+    }
+  }
+
+  static async updateOdds(matchId, odds) {
+    try {
+      const match = await prisma.match.update({
+        where: { match_id: parseInt(matchId) },
+        data: {
+          odds_team_a: odds.team_a,
+          odds_draw: odds.draw,
+          odds_team_b: odds.team_b,
+          updated_at: new Date()
+        }
+      });
+      return match;
+    } catch (error) {
+      logger.error('Error updating match odds:', error);
+      throw error;
+    }
+  }
+
+  static async bulkCreateMatches(matchesData) {
+    try {
+      const matches = await prisma.match.createMany({
+        data: matchesData.map(match => ({
+          match_id: parseInt(match.match_id),
+          team_a: match.team_a,
+          team_b: match.team_b,
+          match_date: new Date(match.match_date),
+          venue: match.venue || null,
+          group_name: match.group_name || null,
+          odds_team_a: parseFloat(match.odds_team_a),
+          odds_draw: parseFloat(match.odds_draw),
+          odds_team_b: parseFloat(match.odds_team_b),
+          status: match.status || constants.MATCH_STATUS.UPCOMING,
+          total_staked: 0,
+          created_at: new Date(),
+          updated_at: new Date()
+        })),
+        skipDuplicates: true
+      });
+      return matches;
+    } catch (error) {
+      logger.error('Error bulk creating matches:', error);
+      throw error;
+    }
+  }
+
+  static async searchMatches(searchTerm, limit = 20) {
+    try {
+      const matches = await prisma.match.findMany({
+        where: {
+          OR: [
+            { team_a: { contains: searchTerm, mode: 'insensitive' } },
+            { team_b: { contains: searchTerm, mode: 'insensitive' } },
+            { venue: { contains: searchTerm, mode: 'insensitive' } },
+            { group_name: { contains: searchTerm, mode: 'insensitive' } }
+          ]
+        },
+        orderBy: { match_date: 'asc' },
+        take: parseInt(limit)
+      });
+      return matches;
+    } catch (error) {
+      logger.error('Error searching matches:', error);
       throw error;
     }
   }

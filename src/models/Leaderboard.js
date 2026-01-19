@@ -1,36 +1,31 @@
 // src/models/Leaderboard.js
-const db = require('../config/database');
+const prisma = require('../config/database');
 const logger = require('../utils/logger');
 
 class Leaderboard {
-  static tableName = 'leaderboard';
-
   static async updateOrCreate(userData) {
     try {
-      const query = `
-        INSERT INTO ${this.tableName} 
-        (user_address, total_winnings, total_bets, win_rate, streak, updated_at)
-        VALUES ($1, $2, $3, $4, $5, NOW())
-        ON CONFLICT (user_address) 
-        DO UPDATE SET 
-          total_winnings = EXCLUDED.total_winnings,
-          total_bets = EXCLUDED.total_bets,
-          win_rate = EXCLUDED.win_rate,
-          streak = EXCLUDED.streak,
-          updated_at = NOW()
-        RETURNING *
-      `;
-
-      const values = [
-        userData.user_address.toLowerCase(),
-        userData.total_winnings || 0,
-        userData.total_bets || 0,
-        userData.win_rate || 0,
-        userData.streak || 0
-      ];
-
-      const result = await db.query(query, values);
-      return result.rows[0];
+      const leaderboard = await prisma.leaderboard.upsert({
+        where: {
+          user_address: userData.user_address.toLowerCase()
+        },
+        update: {
+          total_winnings: userData.total_winnings || 0,
+          total_bets: userData.total_bets || 0,
+          win_rate: userData.win_rate || 0,
+          streak: userData.streak || 0,
+          updated_at: new Date()
+        },
+        create: {
+          user_address: userData.user_address.toLowerCase(),
+          total_winnings: userData.total_winnings || 0,
+          total_bets: userData.total_bets || 0,
+          win_rate: userData.win_rate || 0,
+          streak: userData.streak || 0,
+          updated_at: new Date()
+        }
+      });
+      return leaderboard;
     } catch (error) {
       logger.error('Error updating leaderboard:', error);
       throw error;
@@ -41,68 +36,77 @@ class Leaderboard {
     try {
       const { min_bets, min_winnings } = filters;
       
-      const {
-        page = 1,
-        limit = 20,
-        sort_by = 'total_winnings',
-        sort_order = 'DESC'
-      } = pagination;
-
-      const offset = (page - 1) * limit;
-      const conditions = [];
-      const values = [];
-      let index = 1;
-
+      const page = parseInt(pagination.page) || 1;
+      const limit = parseInt(pagination.limit) || 20;
+      const sort_by = pagination.sort_by || 'total_winnings';
+      const sort_order = pagination.sort_order || 'desc';
+      
+      const skip = (page - 1) * limit;
+      
+      // Build where clause
+      const where = {};
+      
       if (min_bets) {
-        conditions.push(`total_bets >= $${index}`);
-        values.push(min_bets);
-        index++;
+        where.total_bets = {
+          gte: parseInt(min_bets)
+        };
       }
-
+      
       if (min_winnings) {
-        conditions.push(`total_winnings >= $${index}`);
-        values.push(min_winnings);
-        index++;
+        where.total_winnings = {
+          gte: parseFloat(min_winnings)
+        };
       }
-
+      
       // Validate sort column
       const validSortColumns = [
         'total_winnings', 'total_bets', 'win_rate', 'streak', 'updated_at'
       ];
       
       const sortColumn = validSortColumns.includes(sort_by) ? sort_by : 'total_winnings';
-      const order = sort_order.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
-
-      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-
+      const order = sort_order.toLowerCase() === 'asc' ? 'asc' : 'desc';
+      
       // Get total count
-      const countQuery = `
-        SELECT COUNT(*) as total 
-        FROM ${this.tableName} 
-        ${whereClause}
-      `;
-
-      const countResult = await db.query(countQuery, values);
-      const total = parseInt(countResult.rows[0].total);
-
-      // Get paginated results
-      const dataQuery = `
+      const total = await prisma.leaderboard.count({ where });
+      
+      // Get paginated results with rank calculation
+      // We need raw query for ROW_NUMBER() window function
+      const whereConditions = [];
+      const values = [limit, skip];
+      let paramIndex = 3;
+      
+      if (min_bets) {
+        whereConditions.push(`total_bets >= $${paramIndex}`);
+        values.push(min_bets);
+        paramIndex++;
+      }
+      
+      if (min_winnings) {
+        whereConditions.push(`total_winnings >= $${paramIndex}`);
+        values.push(min_winnings);
+        paramIndex++;
+      }
+      
+      const whereClause = whereConditions.length > 0 
+        ? `WHERE ${whereConditions.join(' AND ')}` 
+        : '';
+      
+      const rawQuery = `
         SELECT 
           l.*,
           u.username,
           ROW_NUMBER() OVER (ORDER BY ${sortColumn} ${order}) as rank
-        FROM ${this.tableName} l
+        FROM leaderboard l
         LEFT JOIN users u ON l.user_address = u.wallet_address
         ${whereClause}
         ORDER BY ${sortColumn} ${order}
-        LIMIT $${index} OFFSET $${index + 1}
+        LIMIT $1 OFFSET $2
       `;
-
-      const dataValues = [...values, limit, offset];
-      const dataResult = await db.query(dataQuery, dataValues);
-
+      
+      const rankings = await prisma.$queryRawUnsafe(rawQuery, ...values);
+      
       return {
-        data: dataResult.rows,
+        data: rankings,
         pagination: {
           page,
           limit,
@@ -118,19 +122,19 @@ class Leaderboard {
 
   static async getTopWinners(limit = 10) {
     try {
-      const query = `
+      const rawQuery = `
         SELECT 
           l.*,
           u.username,
           RANK() OVER (ORDER BY l.total_winnings DESC) as rank
-        FROM ${this.tableName} l
+        FROM leaderboard l
         LEFT JOIN users u ON l.user_address = u.wallet_address
         ORDER BY l.total_winnings DESC
         LIMIT $1
       `;
-
-      const result = await db.query(query, [limit]);
-      return result.rows;
+      
+      const topWinners = await prisma.$queryRawUnsafe(rawQuery, parseInt(limit));
+      return topWinners;
     } catch (error) {
       logger.error('Error getting top winners:', error);
       throw error;
@@ -139,20 +143,20 @@ class Leaderboard {
 
   static async getTopWinRate(limit = 10) {
     try {
-      const query = `
+      const rawQuery = `
         SELECT 
           l.*,
           u.username,
           RANK() OVER (ORDER BY l.win_rate DESC) as rank
-        FROM ${this.tableName} l
+        FROM leaderboard l
         LEFT JOIN users u ON l.user_address = u.wallet_address
         WHERE l.total_bets >= 10
         ORDER BY l.win_rate DESC
         LIMIT $1
       `;
-
-      const result = await db.query(query, [limit]);
-      return result.rows;
+      
+      const topWinRate = await prisma.$queryRawUnsafe(rawQuery, parseInt(limit));
+      return topWinRate;
     } catch (error) {
       logger.error('Error getting top win rate:', error);
       throw error;
@@ -161,22 +165,41 @@ class Leaderboard {
 
   static async getTopVolume(limit = 10) {
     try {
-      const query = `
-        SELECT 
-          u.wallet_address,
-          u.username,
-          COALESCE(SUM(b.amount), 0) as total_volume,
-          COUNT(b.id) as total_bets
-        FROM users u
-        LEFT JOIN bets b ON u.wallet_address = b.user_address
-        WHERE b.amount IS NOT NULL
-        GROUP BY u.wallet_address, u.username
-        ORDER BY total_volume DESC
-        LIMIT $1
-      `;
-
-      const result = await db.query(query, [limit]);
-      return result.rows;
+      const topVolume = await prisma.user.findMany({
+        select: {
+          wallet_address: true,
+          username: true,
+          bets: {
+            select: {
+              amount: true
+            },
+            where: {
+              amount: {
+                not: null
+              }
+            }
+          }
+        },
+        orderBy: {
+          bets: {
+            _count: 'desc'
+          }
+        },
+        take: parseInt(limit)
+      });
+      
+      // Transform the result to match the expected format
+      return topVolume.map(user => {
+        const totalVolume = user.bets.reduce((sum, bet) => sum + (bet.amount || 0), 0);
+        const totalBets = user.bets.length;
+        
+        return {
+          wallet_address: user.wallet_address,
+          username: user.username,
+          total_volume: totalVolume,
+          total_bets: totalBets
+        };
+      });
     } catch (error) {
       logger.error('Error getting top volume:', error);
       throw error;
@@ -185,24 +208,24 @@ class Leaderboard {
 
   static async getUserRank(walletAddress) {
     try {
-      const query = `
+      const rawQuery = `
         WITH ranked_users AS (
           SELECT 
             user_address,
             total_winnings,
             ROW_NUMBER() OVER (ORDER BY total_winnings DESC) as rank
-          FROM ${this.tableName}
+          FROM leaderboard
         )
         SELECT 
           r.rank,
           r.total_winnings,
-          (SELECT COUNT(*) FROM ${this.tableName}) as total_users
+          (SELECT COUNT(*) FROM leaderboard) as total_users
         FROM ranked_users r
         WHERE r.user_address = $1
       `;
-
-      const result = await db.query(query, [walletAddress.toLowerCase()]);
-      return result.rows[0] || null;
+      
+      const userRank = await prisma.$queryRawUnsafe(rawQuery, walletAddress.toLowerCase());
+      return userRank[0] || null;
     } catch (error) {
       logger.error('Error getting user rank:', error);
       throw error;
@@ -211,20 +234,20 @@ class Leaderboard {
 
   static async updateAllRanks() {
     try {
-      const query = `
-        UPDATE ${this.tableName} l
+      const rawQuery = `
+        UPDATE leaderboard l
         SET rank = r.rank
         FROM (
           SELECT 
             user_address,
             ROW_NUMBER() OVER (ORDER BY total_winnings DESC) as rank
-          FROM ${this.tableName}
+          FROM leaderboard
         ) r
         WHERE l.user_address = r.user_address
       `;
-
-      const result = await db.query(query);
-      return result.rowCount;
+      
+      const result = await prisma.$executeRawUnsafe(rawQuery);
+      return result;
     } catch (error) {
       logger.error('Error updating all ranks:', error);
       throw error;
@@ -233,8 +256,7 @@ class Leaderboard {
 
   static async getUserStreak(walletAddress) {
     try {
-      // Get recent bets to calculate streak
-      const query = `
+      const rawQuery = `
         WITH recent_bets AS (
           SELECT 
             b.status,
@@ -267,9 +289,9 @@ class Leaderboard {
           streak_length as current_streak_length
         FROM current_streak
       `;
-
-      const result = await db.query(query, [walletAddress.toLowerCase()]);
-      return result.rows[0] || null;
+      
+      const streak = await prisma.$queryRawUnsafe(rawQuery, walletAddress.toLowerCase());
+      return streak[0] || null;
     } catch (error) {
       logger.error('Error getting user streak:', error);
       throw error;
@@ -278,21 +300,25 @@ class Leaderboard {
 
   static async getGlobalStats() {
     try {
-      const query = `
+      const rawQuery = `
         SELECT 
           COUNT(DISTINCT user_address) as total_players,
           SUM(total_winnings) as total_payouts,
           AVG(total_winnings) as average_winnings,
           AVG(win_rate) as average_win_rate,
           MAX(total_winnings) as top_winner_amount,
-          (SELECT username FROM users u 
-           JOIN ${this.tableName} l ON u.wallet_address = l.user_address 
-           ORDER BY l.total_winnings DESC LIMIT 1) as top_winner_name
-        FROM ${this.tableName}
+          (
+            SELECT username 
+            FROM users u 
+            JOIN leaderboard l ON u.wallet_address = l.user_address 
+            ORDER BY l.total_winnings DESC 
+            LIMIT 1
+          ) as top_winner_name
+        FROM leaderboard
       `;
-
-      const result = await db.query(query);
-      return result.rows[0] || null;
+      
+      const stats = await prisma.$queryRawUnsafe(rawQuery);
+      return stats[0] || null;
     } catch (error) {
       logger.error('Error getting global stats:', error);
       throw error;
@@ -301,23 +327,57 @@ class Leaderboard {
 
   static async getWeeklyLeaderboard() {
     try {
-      const query = `
-        SELECT 
-          b.user_address,
-          u.username,
-          SUM(b.amount) as weekly_volume,
-          COUNT(b.id) as weekly_bets,
-          SUM(CASE WHEN b.status = 'won' THEN b.potential_win ELSE 0 END) as weekly_winnings
-        FROM bets b
-        LEFT JOIN users u ON b.user_address = u.wallet_address
-        WHERE b.placed_at >= NOW() - INTERVAL '7 days'
-        GROUP BY b.user_address, u.username
-        ORDER BY weekly_winnings DESC
-        LIMIT 20
-      `;
-
-      const result = await db.query(query);
-      return result.rows;
+      const oneWeekAgo = new Date();
+      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+      
+      const weeklyStats = await prisma.bet.groupBy({
+        by: ['user_address'],
+        where: {
+          placed_at: {
+            gte: oneWeekAgo
+          }
+        },
+        _sum: {
+          amount: true,
+          potential_win: true
+        },
+        _count: {
+          id: true
+        },
+        orderBy: {
+          _sum: {
+            potential_win: 'desc'
+          }
+        },
+        take: 20
+      });
+      
+      // Get usernames for each user
+      const userIds = weeklyStats.map(stat => stat.user_address);
+      const users = await prisma.user.findMany({
+        where: {
+          wallet_address: {
+            in: userIds
+          }
+        },
+        select: {
+          wallet_address: true,
+          username: true
+        }
+      });
+      
+      const userMap = {};
+      users.forEach(user => {
+        userMap[user.wallet_address] = user.username;
+      });
+      
+      return weeklyStats.map(stat => ({
+        user_address: stat.user_address,
+        username: userMap[stat.user_address] || null,
+        weekly_volume: stat._sum.amount || 0,
+        weekly_bets: stat._count.id || 0,
+        weekly_winnings: stat._sum.potential_win || 0
+      }));
     } catch (error) {
       logger.error('Error getting weekly leaderboard:', error);
       throw error;
@@ -326,23 +386,57 @@ class Leaderboard {
 
   static async getMonthlyLeaderboard() {
     try {
-      const query = `
-        SELECT 
-          b.user_address,
-          u.username,
-          SUM(b.amount) as monthly_volume,
-          COUNT(b.id) as monthly_bets,
-          SUM(CASE WHEN b.status = 'won' THEN b.potential_win ELSE 0 END) as monthly_winnings
-        FROM bets b
-        LEFT JOIN users u ON b.user_address = u.wallet_address
-        WHERE b.placed_at >= NOW() - INTERVAL '30 days'
-        GROUP BY b.user_address, u.username
-        ORDER BY monthly_winnings DESC
-        LIMIT 20
-      `;
-
-      const result = await db.query(query);
-      return result.rows;
+      const oneMonthAgo = new Date();
+      oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+      
+      const monthlyStats = await prisma.bet.groupBy({
+        by: ['user_address'],
+        where: {
+          placed_at: {
+            gte: oneMonthAgo
+          }
+        },
+        _sum: {
+          amount: true,
+          potential_win: true
+        },
+        _count: {
+          id: true
+        },
+        orderBy: {
+          _sum: {
+            potential_win: 'desc'
+          }
+        },
+        take: 20
+      });
+      
+      // Get usernames for each user
+      const userIds = monthlyStats.map(stat => stat.user_address);
+      const users = await prisma.user.findMany({
+        where: {
+          wallet_address: {
+            in: userIds
+          }
+        },
+        select: {
+          wallet_address: true,
+          username: true
+        }
+      });
+      
+      const userMap = {};
+      users.forEach(user => {
+        userMap[user.wallet_address] = user.username;
+      });
+      
+      return monthlyStats.map(stat => ({
+        user_address: stat.user_address,
+        username: userMap[stat.user_address] || null,
+        monthly_volume: stat._sum.amount || 0,
+        monthly_bets: stat._count.id || 0,
+        monthly_winnings: stat._sum.potential_win || 0
+      }));
     } catch (error) {
       logger.error('Error getting monthly leaderboard:', error);
       throw error;
@@ -351,14 +445,12 @@ class Leaderboard {
 
   static async delete(userAddress) {
     try {
-      const query = `
-        DELETE FROM ${this.tableName} 
-        WHERE user_address = $1
-        RETURNING *
-      `;
-
-      const result = await db.query(query, [userAddress.toLowerCase()]);
-      return result.rows[0] || null;
+      const leaderboard = await prisma.leaderboard.delete({
+        where: {
+          user_address: userAddress.toLowerCase()
+        }
+      });
+      return leaderboard;
     } catch (error) {
       logger.error('Error deleting leaderboard entry:', error);
       throw error;
@@ -367,15 +459,12 @@ class Leaderboard {
 
   static async exists(userAddress) {
     try {
-      const query = `
-        SELECT EXISTS(
-          SELECT 1 FROM ${this.tableName} 
-          WHERE user_address = $1
-        )
-      `;
-
-      const result = await db.query(query, [userAddress.toLowerCase()]);
-      return result.rows[0].exists;
+      const count = await prisma.leaderboard.count({
+        where: {
+          user_address: userAddress.toLowerCase()
+        }
+      });
+      return count > 0;
     } catch (error) {
       logger.error('Error checking if leaderboard entry exists:', error);
       throw error;

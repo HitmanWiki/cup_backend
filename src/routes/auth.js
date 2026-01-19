@@ -4,43 +4,37 @@ const router = express.Router();
 const AuthController = require('../controllers/authController');
 const AuthMiddleware = require('../middleware/auth');
 
-// Public routes
-router.post('/connect', 
-  AuthMiddleware.verifyWallet, 
-  AuthController.connectWallet
-);
+// Wallet login/signup - use walletLogin method
+router.post('/login', AuthController.walletLogin);
 
-router.get('/health', 
-  AuthController.healthCheck
-);
+// Alternative wallet connection endpoint
+router.post('/connect', AuthController.connectWallet);
 
-router.get('/users/search', 
-  AuthController.searchUsers
-);
+// Get user profile
+router.get('/me', AuthMiddleware.verifyToken, AuthController.getProfile);
 
-router.get('/users/top', 
-  AuthController.getTopUsers
-);
+// Update user profile
+router.put('/profile', AuthMiddleware.verifyToken, AuthController.updateProfile);
 
-// Protected routes (require authentication)
-router.get('/profile', 
-  AuthMiddleware.verifyToken, 
-  AuthController.getProfile
-);
+// Get user stats
+router.get('/stats', AuthMiddleware.verifyToken, AuthController.getUserStats);
 
-router.put('/profile', 
-  AuthMiddleware.verifyToken, 
-  AuthController.updateProfile
-);
+// Get user activity
+router.get('/activity', AuthMiddleware.verifyToken, AuthController.getUserActivity);
 
-router.get('/stats', 
-  AuthMiddleware.verifyToken, 
-  AuthController.getUserStats
-);
+// Search users (public)
+router.get('/search', AuthController.searchUsers);
 
-router.get('/activity', 
-  AuthMiddleware.verifyToken, 
-  AuthController.getUserActivity
-);
+// Get top users (public)
+router.get('/top', AuthController.getTopUsers);
+
+// Logout (client-side token invalidation)
+router.post('/logout', AuthMiddleware.verifyToken, (req, res) => {
+  logger.info(`User logged out: ${req.user.walletAddress}`);
+  return res.status(200).json({
+    success: true,
+    message: 'Logout successful'
+  });
+});
 
 module.exports = router;

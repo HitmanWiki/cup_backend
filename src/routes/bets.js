@@ -13,6 +13,11 @@ router.get('/largest',
   BetController.getLargestBets
 );
 
+// ADD THIS ROUTE - Your frontend is calling this
+router.get('/user/:userAddress',
+  BetController.getUserBetsByAddress  // No auth required (or optional)
+);
+
 // User routes (require authentication)
 router.post('/', 
   AuthMiddleware.verifyToken,

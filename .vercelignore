@@ -1,0 +1,11 @@
+node_modules
+*.db
+*.sqlite
+.env
+.env.local
+logs/
+*.log
+coverage/
+database/
+prisma/migrations/
+.DS_Store

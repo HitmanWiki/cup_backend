@@ -6,53 +6,110 @@ const User = require('../models/User');
 
 class AuthMiddleware {
   // Verify JWT token
-  static async verifyToken(req, res, next) {
-    try {
-      const token = req.headers.authorization?.replace('Bearer ', '');
-      
-      if (!token) {
-        return res.status(401).json({
-          success: false,
-          error: 'Access token required'
-        });
-      }
+  // src/middleware/auth.js
+// Update the verifyToken method:
 
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      req.user = decoded;
+static async verifyToken(req, res, next) {
+  try {
+    // Try multiple ways to get the token
+    let token;
+    
+    // 1. Check Authorization header (Bearer token)
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.slice(7); // Remove "Bearer "
+    }
+    // 2. Check x-access-token header
+    else if (req.headers['x-access-token']) {
+      token = req.headers['x-access-token'];
+    }
+    // 3. Check x-auth-token header
+    else if (req.headers['x-auth-token']) {
+      token = req.headers['x-auth-token'];
+    }
+    // 4. Check cookies
+    else if (req.cookies && req.cookies.token) {
+      token = req.cookies.token;
+    }
+    
+    if (!token) {
+      logger.warn('No token provided', {
+        url: req.url,
+        method: req.method,
+        headers: req.headers
+      });
       
-      // Optionally verify user exists in database
-      const user = await User.findByWalletAddress(decoded.walletAddress);
-      if (!user) {
-        return res.status(401).json({
-          success: false,
-          error: 'User not found'
-        });
-      }
-      
-      next();
-    } catch (error) {
-      logger.error('Token verification error:', error);
-      
-      if (error.name === 'JsonWebTokenError') {
-        return res.status(401).json({
-          success: false,
-          error: 'Invalid token'
-        });
-      }
-      
-      if (error.name === 'TokenExpiredError') {
-        return res.status(401).json({
-          success: false,
-          error: 'Token expired'
-        });
-      }
-      
-      return res.status(500).json({
+      return res.status(401).json({
         success: false,
-        error: 'Authentication failed'
+        error: 'Access token required. Please log in first.'
       });
     }
+
+    // Verify the token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    
+    // Make sure walletAddress exists in token
+    if (!decoded.walletAddress) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid token: missing wallet address'
+      });
+    }
+    
+    // Optional: Verify user exists in database
+    try {
+      const user = await User.findByWalletAddress(decoded.walletAddress);
+      if (!user) {
+        logger.warn('User not found in database:', decoded.walletAddress);
+        // Don't fail here - just log and continue
+      }
+    } catch (dbError) {
+      logger.warn('Database check failed:', dbError);
+      // Continue anyway - token is valid
+    }
+    
+    // Add user info to request
+    req.user = {
+      walletAddress: decoded.walletAddress.toLowerCase(),
+      ...decoded
+    };
+    
+    // Add debug logging in development
+    if (process.env.NODE_ENV === 'development') {
+      logger.debug('Token verified for:', {
+        walletAddress: req.user.walletAddress,
+        url: req.url
+      });
+    }
+    
+    next();
+  } catch (error) {
+    logger.error('Token verification error:', {
+      name: error.name,
+      message: error.message,
+      url: req.url
+    });
+    
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid token format'
+      });
+    }
+    
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({
+        success: false,
+        error: 'Token expired. Please log in again.'
+      });
+    }
+    
+    return res.status(500).json({
+      success: false,
+      error: 'Authentication failed'
+    });
   }
+}
 
   // Verify wallet signature
   static async verifyWallet(req, res, next) {

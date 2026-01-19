@@ -78,11 +78,11 @@ const constants = {
 
   // Network configurations
   NETWORKS: {
-    SEPOLIA: {
-      chainId: 11155111,
-      name: 'Sepolia',
-      rpcUrl: process.env.RPC_URL_SEPOLIA,
-      explorer: 'https://sepolia.etherscan.io'
+    BASE: {
+      chainId: 8453,
+      name: 'base',
+      rpcUrl: process.env.RPC_URL_BASE,
+      explorer: 'https://basescan.org'
     },
     MAINNET: {
       chainId: 1,
@@ -129,7 +129,7 @@ const validateConfig = () => {
       'DB_NAME',
       'DB_USER',
       'JWT_SECRET',
-      'RPC_URL_SEPOLIA',
+      'RPC_URL_BASE',
       'PRIVATE_KEY'
     ];
 

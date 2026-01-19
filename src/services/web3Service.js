@@ -25,6 +25,47 @@ class Web3Service {
     }
   }
 
+  // ========== HELPER METHODS ==========
+
+  convertToNumber(value) {
+    if (typeof value === 'bigint') {
+      return Number(value);
+    } else if (value && typeof value === 'object') {
+      // Web3.js v1.x BigNumber
+      if (value.toNumber && typeof value.toNumber === 'function') {
+        return value.toNumber();
+      }
+      // Ethers.js BigNumber
+      else if (value._isBigNumber) {
+        return value.toNumber();
+      }
+      // BN.js or similar
+      else if (value.toNumber) {
+        return value.toNumber();
+      }
+      // Object with toString
+      else if (value.toString && typeof value.toString === 'function') {
+        return parseInt(value.toString(), 10);
+      }
+      // Direct numeric property
+      else if (typeof value === 'object') {
+        // Try to find a numeric value in the object
+        const strValue = String(value);
+        const num = parseInt(strValue, 10);
+        if (!isNaN(num)) {
+          return num;
+        }
+      }
+    } else if (typeof value === 'string') {
+      return parseInt(value, 10);
+    } else if (typeof value === 'number') {
+      return value;
+    }
+    
+    logger.error(`Cannot convert value to number. Type: ${typeof value}, Value:`, value);
+    throw new Error(`Cannot convert value to number: ${typeof value} ${value}`);
+  }
+
   // ========== CONTRACT OPERATIONS ==========
 
   async createMatchOnChain(matchData) {
@@ -78,7 +119,7 @@ class Web3Service {
         if (log.topics[0] === eventTopic) {
           // Decode the log data
           const decoded = this.web3.contract.interface.parseLog(log);
-          return decoded.args.matchId.toNumber();
+          return this.convertToNumber(decoded.args.matchId);
         }
       }
 
@@ -167,7 +208,7 @@ class Web3Service {
       for (const log of receipt.logs) {
         if (log.topics[0] === eventTopic) {
           const decoded = this.web3.contract.interface.parseLog(log);
-          return decoded.args.betId.toNumber();
+          return this.convertToNumber(decoded.args.betId);
         }
       }
 
@@ -325,10 +366,10 @@ class Web3Service {
       return {
         teamA: match.teamA,
         teamB: match.teamB,
-        timestamp: new Date(match.timestamp.toNumber() * 1000),
-        oddsTeamA: match.oddsTeamA.toNumber() / 100,
-        oddsDraw: match.oddsDraw.toNumber() / 100,
-        oddsTeamB: match.oddsTeamB.toNumber() / 100,
+        timestamp: new Date(this.convertToNumber(match.timestamp) * 1000),
+        oddsTeamA: this.convertToNumber(match.oddsTeamA) / 100,
+        oddsDraw: this.convertToNumber(match.oddsDraw) / 100,
+        oddsTeamB: this.convertToNumber(match.oddsTeamB) / 100,
         status: this.mapChainStatus(match.status),
         totalStaked: this.web3.formatEther(match.totalStaked),
         resultVerified: match.resultVerified
@@ -346,14 +387,14 @@ class Web3Service {
       const bet = await this.web3.callContract('getBet', [betId], { readOnly: true });
       
       return {
-        matchId: bet.matchId.toNumber(),
+        matchId: this.convertToNumber(bet.matchId),
         bettor: bet.bettor,
         predicted: bet.predicted,
         amount: this.web3.formatEther(bet.amount),
         potentialWin: this.web3.formatEther(bet.potentialWin),
         status: this.mapBetStatus(bet.status),
         claimed: bet.claimed,
-        timestamp: new Date(bet.timestamp.toNumber() * 1000)
+        timestamp: new Date(this.convertToNumber(bet.timestamp) * 1000)
       };
     } catch (error) {
       logger.error('Error getting bet from chain:', error);
@@ -370,7 +411,8 @@ class Web3Service {
       const bets = [];
       for (const betId of betIds) {
         try {
-          const bet = await this.getBetFromChain(betId.toNumber());
+          const betIdNumber = this.convertToNumber(betId);
+          const bet = await this.getBetFromChain(betIdNumber);
           bets.push(bet);
         } catch (error) {
           logger.warn(`Error fetching bet ${betId}:`, error);
@@ -389,7 +431,7 @@ class Web3Service {
       await this.initialize();
       
       const count = await this.web3.callContract('getTotalActiveBets', [], { readOnly: true });
-      return count.toNumber();
+      return this.convertToNumber(count);
     } catch (error) {
       logger.error('Error getting total active bets from chain:', error);
       throw error;
@@ -399,6 +441,7 @@ class Web3Service {
   // ========== UTILITY FUNCTIONS ==========
 
   mapChainStatus(chainStatus) {
+    const statusNum = this.convertToNumber(chainStatus);
     const statusMap = {
       0: constants.MATCH_STATUS.UPCOMING,
       1: constants.MATCH_STATUS.LIVE,
@@ -406,10 +449,11 @@ class Web3Service {
       3: constants.MATCH_STATUS.CANCELLED
     };
     
-    return statusMap[chainStatus] || constants.MATCH_STATUS.UPCOMING;
+    return statusMap[statusNum] || constants.MATCH_STATUS.UPCOMING;
   }
 
   mapBetStatus(chainStatus) {
+    const statusNum = this.convertToNumber(chainStatus);
     const statusMap = {
       0: constants.BET_STATUS.PENDING,
       1: constants.BET_STATUS.WON,
@@ -418,7 +462,7 @@ class Web3Service {
       4: constants.BET_STATUS.CANCELLED
     };
     
-    return statusMap[chainStatus] || constants.BET_STATUS.PENDING;
+    return statusMap[statusNum] || constants.BET_STATUS.PENDING;
   }
 
   async syncChainWithDatabase() {
@@ -444,9 +488,19 @@ class Web3Service {
     try {
       // Get match counter from chain
       const matchCounter = await this.web3.callContract('matchCounter', [], { readOnly: true });
-      const totalMatches = matchCounter.toNumber();
+      
+      // Log for debugging
+      logger.debug(`matchCounter raw value: ${matchCounter}, type: ${typeof matchCounter}`);
+      
+      const totalMatches = this.convertToNumber(matchCounter);
       
       logger.info(`Found ${totalMatches} matches on chain`);
+      
+      // If no matches, return early
+      if (totalMatches <= 0) {
+        logger.info('No matches found on chain to sync');
+        return;
+      }
       
       // Sync each match
       for (let i = 1; i <= totalMatches; i++) {
@@ -488,6 +542,7 @@ class Web3Service {
           }
         } catch (error) {
           logger.warn(`Error syncing match ${i}:`, error);
+          // Continue with next match
         }
       }
     } catch (error) {
@@ -500,9 +555,19 @@ class Web3Service {
     try {
       // Get bet counter from chain
       const betCounter = await this.web3.callContract('betCounter', [], { readOnly: true });
-      const totalBets = betCounter.toNumber();
+      
+      // Log for debugging
+      logger.debug(`betCounter raw value: ${betCounter}, type: ${typeof betCounter}`);
+      
+      const totalBets = this.convertToNumber(betCounter);
       
       logger.info(`Found ${totalBets} bets on chain`);
+      
+      // If no bets, return early
+      if (totalBets <= 0) {
+        logger.info('No bets found on chain to sync');
+        return;
+      }
       
       // Sync each bet
       for (let i = 1; i <= totalBets; i++) {
@@ -536,7 +601,7 @@ class Web3Service {
             if (dbBet.claimed !== chainBet.claimed) {
               updates.claimed = chainBet.claimed;
               if (chainBet.claimed) {
-                updates.claimed_at = true;
+                updates.claimed_at = new Date();
               }
             }
             
@@ -547,6 +612,7 @@ class Web3Service {
           }
         } catch (error) {
           logger.warn(`Error syncing bet ${i}:`, error);
+          // Continue with next bet
         }
       }
     } catch (error) {
@@ -557,8 +623,11 @@ class Web3Service {
 
   calculateOddsFromChainBet(chainBet) {
     // Calculate odds from amount and potential win
-    if (chainBet.amount > 0) {
-      return parseFloat(chainBet.potentialWin) / parseFloat(chainBet.amount);
+    const amount = parseFloat(chainBet.amount);
+    const potentialWin = parseFloat(chainBet.potentialWin);
+    
+    if (amount > 0) {
+      return potentialWin / amount;
     }
     return 1;
   }

@@ -1,0 +1,102 @@
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              Int       @id @default(autoincrement())
+  wallet_address  String    @unique @map("wallet_address")
+  username        String?   @unique
+  email           String?   @unique
+  total_bets      Int?      @default(0) @map("total_bets")
+  total_won       Float?    @default(0) @map("total_won")
+  total_staked    Float?    @default(0) @map("total_staked")
+  created_at      DateTime? @default(now()) @map("created_at")
+  last_active     DateTime? @map("last_active")
+  updated_at      DateTime? @updatedAt @map("updated_at")
+  balance         Float?    @default(0)
+  
+  @@map("users")
+}
+
+model Match {
+  id            Int      @id @default(autoincrement())
+  match_id      Int?     @unique @map("match_id")
+  team_a        String   @map("team_a")
+  team_b        String   @map("team_b")
+  match_date    DateTime @map("match_date")
+  venue         String?
+  group_name    String?  @map("group_name")
+  odds_team_a   Float    @default(1.0) @map("odds_team_a")
+  odds_draw     Float    @default(1.0) @map("odds_draw")
+  odds_team_b   Float    @default(1.0) @map("odds_team_b")
+  status        String?  @default("scheduled")
+  result        String?
+  total_staked  Float?   @default(0) @map("total_staked")
+  archived      Int?     @default(0)
+  created_at    DateTime? @default(now()) @map("created_at")
+  updated_at    DateTime? @updatedAt @map("updated_at")
+  
+  @@map("matches")
+}
+
+// Update Bet model in schema.prisma
+// prisma/schema.prisma
+model Bet {
+  id             Int       @id @default(autoincrement())
+  bet_id         Int?      @unique @map("bet_id")  // Keep as Int
+  user_address   String    @map("user_address")
+  match_id       Int       @map("match_id")
+  outcome        Int       @default(0)
+  amount         Float     @default(0)
+  potential_win  Float     @default(0) @map("potential_win")
+  status         String?   @default("pending")
+  claimed        Int?      @default(0)
+  odds           Float     @default(1.0)
+  placed_at      DateTime? @default(now()) @map("placed_at")
+  result_set_at  DateTime? @map("result_set_at")
+  claimed_at     DateTime? @map("claimed_at")
+  
+  @@map("bets")
+}
+
+model UltimateBet {
+  id            Int       @id @default(autoincrement())
+  user_address  String    @map("user_address")
+  team_id       Int       @map("team_id")
+  team_name     String    @map("team_name")
+  amount        Float     @default(0)
+  potential_win Float     @default(0) @map("potential_win")
+  odds          Float     @default(1.0)
+  active        Int?      @default(1)
+  claimed       Int?      @default(0)
+  placed_at     DateTime? @default(now()) @map("placed_at")
+  
+  @@map("ultimate_bets")
+}
+
+model Leaderboard {
+  id             Int       @id @default(autoincrement())
+  user_address   String    @unique @map("user_address")
+  total_winnings Float?    @default(0) @map("total_winnings")
+  total_bets     Int?      @default(0) @map("total_bets")
+  win_rate       Float?    @default(0) @map("win_rate")
+  streak         Int?      @default(0)
+  rank           Int?      @default(0)
+  updated_at     DateTime? @default(now()) @map("updated_at")
+  
+  @@map("leaderboard")
+}
+
+model Migration {
+  id          Int       @id @default(autoincrement())
+  name        String    @map("name")
+  executed_at DateTime? @map("executed_at")
+  
+  @@map("migrations")
+}

@@ -128,51 +128,113 @@ class BetController {
     }
   }
 
-  // Get user bets
-  static async getUserBets(req, res) {
-    try {
-      const { walletAddress } = req.user;
-      const {
-        status,
-        match_id,
-        outcome,
-        claimed,
-        page = 1,
-        limit = constants.PAGINATION.DEFAULT_LIMIT,
-        sort_by = 'placed_at',
-        sort_order = 'DESC'
-      } = req.query;
+  // Get user's bets by address (public or authenticated)
+static async getUserBetsByAddress(req, res) {
+  try {
+    const { userAddress } = req.params;
+    const {
+      status,
+      match_id,
+      outcome,
+      claimed,
+      page = 1,
+      limit = constants.PAGINATION.DEFAULT_LIMIT,
+      sort_by = 'placed_at',
+      sort_order = 'DESC'
+    } = req.query;
 
-      const filters = {
-        status,
-        match_id: match_id ? parseInt(match_id) : undefined,
-        outcome: outcome !== undefined ? parseInt(outcome) : undefined,
-        claimed: claimed === 'true' ? true : claimed === 'false' ? false : undefined
-      };
-
-      const pagination = {
-        page: parseInt(page),
-        limit: Math.min(parseInt(limit), constants.PAGINATION.MAX_LIMIT),
-        sort_by,
-        sort_order
-      };
-
-      const result = await Bet.findByUser(walletAddress, filters, pagination);
-
-      return res.status(200).json({
-        success: true,
-        data: result.data,
-        pagination: result.pagination
-      });
-    } catch (error) {
-      logger.error('Get user bets error:', error);
-      return res.status(500).json({
+    // Validate Ethereum address format
+    if (!userAddress || !userAddress.match(/^0x[a-fA-F0-9]{40}$/)) {
+      return res.status(400).json({
         success: false,
-        error: 'Failed to get user bets'
+        error: 'Invalid Ethereum address format'
       });
     }
-  }
 
+    const filters = {
+      user_address: userAddress.toLowerCase(),
+      status,
+      match_id: match_id ? parseInt(match_id) : undefined,
+      outcome: outcome !== undefined ? parseInt(outcome) : undefined,
+      claimed: claimed === 'true' ? true : claimed === 'false' ? false : undefined
+    };
+
+    const pagination = {
+      page: parseInt(page),
+      limit: Math.min(parseInt(limit), constants.PAGINATION.MAX_LIMIT),
+      sort_by,
+      sort_order
+    };
+
+    // Use findByUser method from Bet model
+    const result = await Bet.findByUser(userAddress, filters, pagination);
+
+    return res.status(200).json({
+      success: true,
+      data: result.data,
+      pagination: result.pagination
+    });
+  } catch (error) {
+    logger.error('Get user bets by address error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get user bets'
+    });
+  }
+}
+
+ // Get user bets (for authenticated users)
+static async getUserBets(req, res) {
+  try {
+    // Check if user is authenticated
+    if (!req.user || !req.user.walletAddress) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required'
+      });
+    }
+
+    const { walletAddress } = req.user;
+    const {
+      status,
+      match_id,
+      outcome,
+      claimed,
+      page = 1,
+      limit = constants.PAGINATION.DEFAULT_LIMIT,
+      sort_by = 'placed_at',
+      sort_order = 'DESC'
+    } = req.query;
+
+    const filters = {
+      status,
+      match_id: match_id ? parseInt(match_id) : undefined,
+      outcome: outcome !== undefined ? parseInt(outcome) : undefined,
+      claimed: claimed === 'true' ? true : claimed === 'false' ? false : undefined
+    };
+
+    const pagination = {
+      page: parseInt(page),
+      limit: Math.min(parseInt(limit), constants.PAGINATION.MAX_LIMIT),
+      sort_by,
+      sort_order
+    };
+
+    const result = await Bet.findByUser(walletAddress, filters, pagination);
+
+    return res.status(200).json({
+      success: true,
+      data: result.data,
+      pagination: result.pagination
+    });
+  } catch (error) {
+    logger.error('Get user bets error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get user bets'
+    });
+  }
+}
   // Get single bet by ID
   static async getBetById(req, res) {
     try {

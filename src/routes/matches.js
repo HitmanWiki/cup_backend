@@ -16,7 +16,9 @@ router.get('/upcoming',
 router.get('/live', 
   MatchController.getLiveMatches
 );
-
+router.get('/groups', 
+  MatchController.getGroups
+);
 router.get('/finished', 
   MatchController.getFinishedMatches
 );

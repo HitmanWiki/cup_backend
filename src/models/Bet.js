@@ -1,37 +1,26 @@
 // src/models/Bet.js
-const db = require('../config/database');
+const prisma = require('../config/database');
 const { constants } = require('../config/constants');
 const logger = require('../utils/logger');
 
 class Bet {
-  static tableName = 'bets';
-
   static async create(betData) {
     try {
-      const query = `
-        INSERT INTO ${this.tableName} 
-        (
-          bet_id, user_address, match_id, outcome, amount, 
-          potential_win, odds, status, claimed, placed_at
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
-        RETURNING *
-      `;
-
-      const values = [
-        betData.bet_id,
-        betData.user_address.toLowerCase(),
-        betData.match_id,
-        betData.outcome,
-        betData.amount,
-        betData.potential_win,
-        betData.odds,
-        betData.status || constants.BET_STATUS.PENDING,
-        betData.claimed || false
-      ];
-
-      const result = await db.query(query, values);
-      return result.rows[0];
+      const bet = await prisma.bet.create({
+        data: {
+          bet_id: betData.bet_id,
+          user_address: betData.user_address.toLowerCase(),
+          match_id: parseInt(betData.match_id),
+          outcome: parseInt(betData.outcome),
+          amount: parseFloat(betData.amount),
+          potential_win: parseFloat(betData.potential_win),
+          odds: parseFloat(betData.odds),
+          status: betData.status || constants.BET_STATUS.PENDING,
+          claimed: betData.claimed ? 1 : 0, // Convert boolean to 0/1
+          placed_at: new Date()
+        }
+      });
+      return bet;
     } catch (error) {
       logger.error('Error creating bet:', error);
       throw error;
@@ -40,15 +29,20 @@ class Bet {
 
   static async findById(betId) {
     try {
-      const query = `
-        SELECT b.*, m.team_a, m.team_b, m.match_date, m.status as match_status
-        FROM ${this.tableName} b
-        LEFT JOIN matches m ON b.match_id = m.match_id
-        WHERE b.bet_id = $1
-      `;
-
-      const result = await db.query(query, [betId]);
-      return result.rows[0] || null;
+      const bet = await prisma.bet.findFirst({
+        where: { bet_id: parseInt(betId) },
+        include: {
+          match: {
+            select: {
+              team_a: true,
+              team_b: true,
+              match_date: true,
+              status: true
+            }
+          }
+        }
+      });
+      return bet;
     } catch (error) {
       logger.error('Error finding bet by ID:', error);
       throw error;
@@ -59,42 +53,23 @@ class Bet {
     try {
       const { status, match_id, outcome, claimed } = filters;
       
-      const {
-        page = 1,
-        limit = constants.PAGINATION.DEFAULT_LIMIT,
-        sort_by = 'placed_at',
-        sort_order = 'DESC'
-      } = pagination;
-
-      const offset = (page - 1) * limit;
-      const conditions = ['b.user_address = $1'];
-      const values = [walletAddress.toLowerCase()];
-      let index = 2;
-
-      if (status) {
-        conditions.push(`b.status = $${index}`);
-        values.push(status);
-        index++;
-      }
-
-      if (match_id) {
-        conditions.push(`b.match_id = $${index}`);
-        values.push(match_id);
-        index++;
-      }
-
-      if (outcome !== undefined) {
-        conditions.push(`b.outcome = $${index}`);
-        values.push(outcome);
-        index++;
-      }
-
-      if (claimed !== undefined) {
-        conditions.push(`b.claimed = $${index}`);
-        values.push(claimed);
-        index++;
-      }
-
+      const page = parseInt(pagination.page) || 1;
+      const limit = parseInt(pagination.limit) || constants.PAGINATION.DEFAULT_LIMIT;
+      const sort_by = pagination.sort_by || 'placed_at';
+      const sort_order = pagination.sort_order || 'desc';
+      
+      const skip = (page - 1) * limit;
+      
+      // Build where clause
+      const where = {
+        user_address: walletAddress.toLowerCase()
+      };
+      
+      if (status) where.status = status;
+      if (match_id) where.match_id = parseInt(match_id);
+      if (outcome !== undefined) where.outcome = parseInt(outcome);
+      if (claimed !== undefined) where.claimed = claimed ? 1 : 0; // Convert boolean to 0/1
+      
       // Validate sort column
       const validSortColumns = [
         'placed_at', 'amount', 'potential_win', 'odds',
@@ -102,41 +77,32 @@ class Bet {
       ];
       
       const sortColumn = validSortColumns.includes(sort_by) ? sort_by : 'placed_at';
-      const order = sort_order.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
-
-      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-
+      const order = sort_order.toLowerCase() === 'asc' ? 'asc' : 'desc';
+      
       // Get total count
-      const countQuery = `
-        SELECT COUNT(*) as total 
-        FROM ${this.tableName} b
-        ${whereClause}
-      `;
-
-      const countResult = await db.query(countQuery, values);
-      const total = parseInt(countResult.rows[0].total);
-
+      const total = await prisma.bet.count({ where });
+      
       // Get paginated results
-      const dataQuery = `
-        SELECT 
-          b.*,
-          m.team_a,
-          m.team_b,
-          m.match_date,
-          m.status as match_status,
-          m.result as match_result
-        FROM ${this.tableName} b
-        LEFT JOIN matches m ON b.match_id = m.match_id
-        ${whereClause}
-        ORDER BY b.${sortColumn} ${order}
-        LIMIT $${index} OFFSET $${index + 1}
-      `;
-
-      const dataValues = [...values, limit, offset];
-      const dataResult = await db.query(dataQuery, dataValues);
-
+      const bets = await prisma.bet.findMany({
+        where,
+        include: {
+          match: {
+            select: {
+              team_a: true,
+              team_b: true,
+              match_date: true,
+              status: true,
+              result: true
+            }
+          }
+        },
+        orderBy: { [sortColumn]: order },
+        skip,
+        take: limit
+      });
+      
       return {
-        data: dataResult.rows,
+        data: bets,
         pagination: {
           page,
           limit,
@@ -154,59 +120,41 @@ class Bet {
     try {
       const { outcome, status } = filters;
       
-      const {
-        page = 1,
-        limit = constants.PAGINATION.DEFAULT_LIMIT,
-        sort_by = 'amount',
-        sort_order = 'DESC'
-      } = pagination;
-
-      const offset = (page - 1) * limit;
-      const conditions = ['b.match_id = $1'];
-      const values = [matchId];
-      let index = 2;
-
-      if (outcome !== undefined) {
-        conditions.push(`b.outcome = $${index}`);
-        values.push(outcome);
-        index++;
-      }
-
-      if (status) {
-        conditions.push(`b.status = $${index}`);
-        values.push(status);
-        index++;
-      }
-
-      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-
+      const page = parseInt(pagination.page) || 1;
+      const limit = parseInt(pagination.limit) || constants.PAGINATION.DEFAULT_LIMIT;
+      const sort_by = pagination.sort_by || 'amount';
+      const sort_order = pagination.sort_order || 'desc';
+      
+      const skip = (page - 1) * limit;
+      
+      // Build where clause
+      const where = {
+        match_id: parseInt(matchId)
+      };
+      
+      if (outcome !== undefined) where.outcome = parseInt(outcome);
+      if (status) where.status = status;
+      
       // Get total count
-      const countQuery = `
-        SELECT COUNT(*) as total 
-        FROM ${this.tableName} b
-        ${whereClause}
-      `;
-
-      const countResult = await db.query(countQuery, values);
-      const total = parseInt(countResult.rows[0].total);
-
+      const total = await prisma.bet.count({ where });
+      
       // Get paginated results
-      const dataQuery = `
-        SELECT 
-          b.*,
-          u.username
-        FROM ${this.tableName} b
-        LEFT JOIN users u ON b.user_address = u.wallet_address
-        ${whereClause}
-        ORDER BY b.${sort_by} ${sort_order}
-        LIMIT $${index} OFFSET $${index + 1}
-      `;
-
-      const dataValues = [...values, limit, offset];
-      const dataResult = await db.query(dataQuery, dataValues);
-
+      const bets = await prisma.bet.findMany({
+        where,
+        include: {
+          user: {
+            select: {
+              username: true
+            }
+          }
+        },
+        orderBy: { [sort_by]: sort_order },
+        skip,
+        take: limit
+      });
+      
       return {
-        data: dataResult.rows,
+        data: bets,
         pagination: {
           page,
           limit,
@@ -222,39 +170,35 @@ class Bet {
 
   static async update(betId, updateData) {
     try {
-      const fields = [];
-      const values = [];
-      let index = 1;
-
-      Object.keys(updateData).forEach(key => {
-        if (updateData[key] !== undefined) {
-          fields.push(`${key} = $${index}`);
-          
-          if (key === 'result_set_at' || key === 'claimed_at') {
-            values.push(updateData[key] === true ? 'NOW()' : updateData[key]);
-          } else {
-            values.push(updateData[key]);
-          }
-          
-          index++;
-        }
+      // Prepare data for update
+      const data = {};
+      
+      // Handle special fields
+      if (updateData.status !== undefined) data.status = updateData.status;
+      if (updateData.claimed !== undefined) data.claimed = updateData.claimed ? 1 : 0; // Convert boolean to 0/1
+      if (updateData.result_set_at !== undefined) {
+        data.result_set_at = updateData.result_set_at === true ? new Date() : updateData.result_set_at;
+      }
+      if (updateData.claimed_at !== undefined) {
+        data.claimed_at = updateData.claimed_at === true ? new Date() : updateData.claimed_at;
+      }
+      
+      // Update other fields
+      const otherFields = ['amount', 'potential_win', 'odds', 'outcome'];
+      otherFields.forEach(field => {
+        if (updateData[field] !== undefined) data[field] = updateData[field];
       });
-
-      if (fields.length === 0) {
+      
+      if (Object.keys(data).length === 0) {
         throw new Error('No fields to update');
       }
-
-      values.push(betId);
       
-      const query = `
-        UPDATE ${this.tableName} 
-        SET ${fields.join(', ')}
-        WHERE bet_id = $${index}
-        RETURNING *
-      `;
-
-      const result = await db.query(query, values);
-      return result.rows[0] || null;
+      const bet = await prisma.bet.update({
+        where: { bet_id: parseInt(betId) },
+        data
+      });
+      
+      return bet;
     } catch (error) {
       logger.error('Error updating bet:', error);
       throw error;
@@ -263,28 +207,34 @@ class Bet {
 
   static async updateStatusForMatch(matchId, result) {
     try {
-      const query = `
-        UPDATE ${this.tableName} 
-        SET 
-          status = CASE 
-            WHEN outcome = $1 THEN $2
-            ELSE $3
-          END,
-          result_set_at = NOW()
-        WHERE match_id = $4 AND status = $5
-        RETURNING *
-      `;
-
-      const values = [
-        result,
-        constants.BET_STATUS.WON,
-        constants.BET_STATUS.LOST,
-        matchId,
-        constants.BET_STATUS.PENDING
-      ];
-
-      const resultData = await db.query(query, values);
-      return resultData.rows;
+      // Find all pending bets for this match
+      const pendingBets = await prisma.bet.findMany({
+        where: {
+          match_id: parseInt(matchId),
+          status: constants.BET_STATUS.PENDING
+        }
+      });
+      
+      const updatePromises = [];
+      
+      for (const bet of pendingBets) {
+        const newStatus = bet.outcome === parseInt(result) 
+          ? constants.BET_STATUS.WON 
+          : constants.BET_STATUS.LOST;
+        
+        updatePromises.push(
+          prisma.bet.update({
+            where: { id: bet.id },
+            data: {
+              status: newStatus,
+              result_set_at: new Date()
+            }
+          })
+        );
+      }
+      
+      const updatedBets = await Promise.all(updatePromises);
+      return updatedBets;
     } catch (error) {
       logger.error('Error updating bet status for match:', error);
       throw error;
@@ -293,22 +243,23 @@ class Bet {
 
   static async claim(betId, userAddress) {
     try {
-      const query = `
-        UPDATE ${this.tableName} 
-        SET 
-          claimed = TRUE,
-          claimed_at = NOW()
-        WHERE bet_id = $1 AND user_address = $2 AND status = $3
-        RETURNING *
-      `;
-
-      const result = await db.query(query, [
-        betId,
-        userAddress.toLowerCase(),
-        constants.BET_STATUS.WON
-      ]);
-      return result.rows[0] || null;
+      const bet = await prisma.bet.update({
+        where: {
+          bet_id: parseInt(betId),
+          user_address: userAddress.toLowerCase(),
+          status: constants.BET_STATUS.WON
+        },
+        data: {
+          claimed: 1, // Changed from true to 1
+          claimed_at: new Date()
+        }
+      });
+      return bet;
     } catch (error) {
+      // If bet not found or not won
+      if (error.code === 'P2025') {
+        return null;
+      }
       logger.error('Error claiming bet:', error);
       throw error;
     }
@@ -316,29 +267,33 @@ class Bet {
 
   static async getUserActiveBets(walletAddress) {
     try {
-      const query = `
-        SELECT 
-          b.*,
-          m.team_a,
-          m.team_b,
-          m.match_date,
-          m.status as match_status
-        FROM ${this.tableName} b
-        LEFT JOIN matches m ON b.match_id = m.match_id
-        WHERE 
-          b.user_address = $1 AND 
-          b.status = $2 AND
-          m.status IN ($3, $4)
-        ORDER BY m.match_date ASC
-      `;
-
-      const result = await db.query(query, [
-        walletAddress.toLowerCase(),
-        constants.BET_STATUS.PENDING,
-        constants.MATCH_STATUS.UPCOMING,
-        constants.MATCH_STATUS.LIVE
-      ]);
-      return result.rows;
+      const bets = await prisma.bet.findMany({
+        where: {
+          user_address: walletAddress.toLowerCase(),
+          status: constants.BET_STATUS.PENDING,
+          match: {
+            status: {
+              in: [constants.MATCH_STATUS.UPCOMING, constants.MATCH_STATUS.LIVE]
+            }
+          }
+        },
+        include: {
+          match: {
+            select: {
+              team_a: true,
+              team_b: true,
+              match_date: true,
+              status: true
+            }
+          }
+        },
+        orderBy: {
+          match: {
+            match_date: 'asc'
+          }
+        }
+      });
+      return bets;
     } catch (error) {
       logger.error('Error getting user active bets:', error);
       throw error;
@@ -347,25 +302,25 @@ class Bet {
 
   static async getUserWinningBets(walletAddress) {
     try {
-      const query = `
-        SELECT 
-          b.*,
-          m.team_a,
-          m.team_b,
-          m.match_date
-        FROM ${this.tableName} b
-        LEFT JOIN matches m ON b.match_id = m.match_id
-        WHERE 
-          b.user_address = $1 AND 
-          b.status = $2
-        ORDER BY b.placed_at DESC
-      `;
-
-      const result = await db.query(query, [
-        walletAddress.toLowerCase(),
-        constants.BET_STATUS.WON
-      ]);
-      return result.rows;
+      const bets = await prisma.bet.findMany({
+        where: {
+          user_address: walletAddress.toLowerCase(),
+          status: constants.BET_STATUS.WON
+        },
+        include: {
+          match: {
+            select: {
+              team_a: true,
+              team_b: true,
+              match_date: true
+            }
+          }
+        },
+        orderBy: {
+          placed_at: 'desc'
+        }
+      });
+      return bets;
     } catch (error) {
       logger.error('Error getting user winning bets:', error);
       throw error;
@@ -374,28 +329,75 @@ class Bet {
 
   static async getUserStats(walletAddress) {
     try {
-      const query = `
-        SELECT 
-          COUNT(*) as total_bets,
-          COUNT(CASE WHEN status = $1 THEN 1 END) as pending_bets,
-          COUNT(CASE WHEN status = $2 THEN 1 END) as won_bets,
-          COUNT(CASE WHEN status = $3 THEN 1 END) as lost_bets,
-          SUM(CASE WHEN status = $2 THEN potential_win ELSE 0 END) as total_potential_winnings,
-          SUM(amount) as total_staked,
-          AVG(odds) as average_odds,
-          MAX(amount) as largest_bet,
-          MIN(amount) as smallest_bet
-        FROM ${this.tableName}
-        WHERE user_address = $4
-      `;
-
-      const result = await db.query(query, [
-        constants.BET_STATUS.PENDING,
-        constants.BET_STATUS.WON,
-        constants.BET_STATUS.LOST,
-        walletAddress.toLowerCase()
-      ]);
-      return result.rows[0] || null;
+      const stats = await prisma.bet.groupBy({
+        by: ['status'],
+        where: {
+          user_address: walletAddress.toLowerCase()
+        },
+        _count: {
+          id: true
+        },
+        _sum: {
+          amount: true,
+          potential_win: true
+        },
+        _avg: {
+          odds: true
+        },
+        _max: {
+          amount: true
+        },
+        _min: {
+          amount: true
+        }
+      });
+      
+      // Transform the result
+      const result = {
+        total_bets: 0,
+        pending_bets: 0,
+        won_bets: 0,
+        lost_bets: 0,
+        total_potential_winnings: 0,
+        total_staked: 0,
+        average_odds: 0,
+        largest_bet: 0,
+        smallest_bet: 0
+      };
+      
+      stats.forEach(stat => {
+        const count = stat._count.id || 0;
+        result.total_bets += count;
+        
+        if (stat.status === constants.BET_STATUS.PENDING) {
+          result.pending_bets = count;
+        } else if (stat.status === constants.BET_STATUS.WON) {
+          result.won_bets = count;
+          result.total_potential_winnings = stat._sum.potential_win || 0;
+        } else if (stat.status === constants.BET_STATUS.LOST) {
+          result.lost_bets = count;
+        }
+        
+        result.total_staked += stat._sum.amount || 0;
+      });
+      
+      // Calculate average odds
+      const totalOdds = stats.reduce((sum, stat) => {
+        return sum + (stat._avg.odds || 0) * (stat._count.id || 0);
+      }, 0);
+      
+      result.average_odds = result.total_bets > 0 ? totalOdds / result.total_bets : 0;
+      
+      // Get largest and smallest bet
+      const amounts = stats.flatMap(stat => [
+        stat._max.amount || 0,
+        stat._min.amount || 0
+      ]).filter(amount => amount > 0);
+      
+      result.largest_bet = amounts.length > 0 ? Math.max(...amounts) : 0;
+      result.smallest_bet = amounts.length > 0 ? Math.min(...amounts) : 0;
+      
+      return result;
     } catch (error) {
       logger.error('Error getting user bet stats:', error);
       throw error;
@@ -404,24 +406,33 @@ class Bet {
 
   static async getMatchBetStats(matchId) {
     try {
-      const query = `
-        SELECT 
-          outcome,
-          COUNT(*) as bet_count,
-          SUM(amount) as total_amount,
-          AVG(amount) as average_bet,
-          MAX(amount) as largest_bet
-        FROM ${this.tableName}
-        WHERE match_id = $1 AND status = $2
-        GROUP BY outcome
-        ORDER BY outcome
-      `;
-
-      const result = await db.query(query, [
-        matchId,
-        constants.BET_STATUS.PENDING
-      ]);
-      return result.rows;
+      const stats = await prisma.bet.groupBy({
+        by: ['outcome'],
+        where: {
+          match_id: parseInt(matchId),
+          status: constants.BET_STATUS.PENDING
+        },
+        _count: {
+          id: true
+        },
+        _sum: {
+          amount: true
+        },
+        _avg: {
+          amount: true
+        },
+        _max: {
+          amount: true
+        }
+      });
+      
+      return stats.map(stat => ({
+        outcome: stat.outcome,
+        bet_count: stat._count.id,
+        total_amount: stat._sum.amount,
+        average_bet: stat._avg.amount,
+        largest_bet: stat._max.amount
+      }));
     } catch (error) {
       logger.error('Error getting match bet stats:', error);
       throw error;
@@ -430,21 +441,26 @@ class Bet {
 
   static async getRecentBets(limit = 20) {
     try {
-      const query = `
-        SELECT 
-          b.*,
-          u.username,
-          m.team_a,
-          m.team_b
-        FROM ${this.tableName} b
-        LEFT JOIN users u ON b.user_address = u.wallet_address
-        LEFT JOIN matches m ON b.match_id = m.match_id
-        ORDER BY b.placed_at DESC
-        LIMIT $1
-      `;
-
-      const result = await db.query(query, [limit]);
-      return result.rows;
+      const bets = await prisma.bet.findMany({
+        include: {
+          user: {
+            select: {
+              username: true
+            }
+          },
+          match: {
+            select: {
+              team_a: true,
+              team_b: true
+            }
+          }
+        },
+        orderBy: {
+          placed_at: 'desc'
+        },
+        take: parseInt(limit)
+      });
+      return bets;
     } catch (error) {
       logger.error('Error getting recent bets:', error);
       throw error;
@@ -453,26 +469,30 @@ class Bet {
 
   static async getLargestBets(limit = 10) {
     try {
-      const query = `
-        SELECT 
-          b.*,
-          u.username,
-          m.team_a,
-          m.team_b,
-          m.match_date
-        FROM ${this.tableName} b
-        LEFT JOIN users u ON b.user_address = u.wallet_address
-        LEFT JOIN matches m ON b.match_id = m.match_id
-        WHERE b.status = $1
-        ORDER BY b.amount DESC
-        LIMIT $2
-      `;
-
-      const result = await db.query(query, [
-        constants.BET_STATUS.PENDING,
-        limit
-      ]);
-      return result.rows;
+      const bets = await prisma.bet.findMany({
+        where: {
+          status: constants.BET_STATUS.PENDING
+        },
+        include: {
+          user: {
+            select: {
+              username: true
+            }
+          },
+          match: {
+            select: {
+              team_a: true,
+              team_b: true,
+              match_date: true
+            }
+          }
+        },
+        orderBy: {
+          amount: 'desc'
+        },
+        take: parseInt(limit)
+      });
+      return bets;
     } catch (error) {
       logger.error('Error getting largest bets:', error);
       throw error;
@@ -481,25 +501,65 @@ class Bet {
 
   static async getTotalStats() {
     try {
-      const query = `
-        SELECT 
-          COUNT(*) as total_bets,
-          SUM(amount) as total_volume,
-          COUNT(CASE WHEN status = $1 THEN 1 END) as active_bets,
-          COUNT(CASE WHEN status = $2 THEN 1 END) as won_bets,
-          COUNT(CASE WHEN status = $3 THEN 1 END) as lost_bets,
-          AVG(amount) as average_bet_size,
-          MAX(amount) as largest_bet,
-          MIN(amount) as smallest_bet
-        FROM ${this.tableName}
-      `;
-
-      const result = await db.query(query, [
-        constants.BET_STATUS.PENDING,
-        constants.BET_STATUS.WON,
-        constants.BET_STATUS.LOST
-      ]);
-      return result.rows[0];
+      const stats = await prisma.bet.groupBy({
+        by: ['status'],
+        _count: {
+          id: true
+        },
+        _sum: {
+          amount: true
+        },
+        _avg: {
+          amount: true
+        },
+        _max: {
+          amount: true
+        },
+        _min: {
+          amount: true
+        }
+      });
+      
+      const result = {
+        total_bets: 0,
+        total_volume: 0,
+        active_bets: 0,
+        won_bets: 0,
+        lost_bets: 0,
+        average_bet_size: 0,
+        largest_bet: 0,
+        smallest_bet: 0
+      };
+      
+      stats.forEach(stat => {
+        const count = stat._count.id || 0;
+        result.total_bets += count;
+        result.total_volume += stat._sum.amount || 0;
+        
+        if (stat.status === constants.BET_STATUS.PENDING) {
+          result.active_bets = count;
+        } else if (stat.status === constants.BET_STATUS.WON) {
+          result.won_bets = count;
+        } else if (stat.status === constants.BET_STATUS.LOST) {
+          result.lost_bets = count;
+        }
+      });
+      
+      // Calculate averages
+      result.average_bet_size = result.total_bets > 0 
+        ? result.total_volume / result.total_bets 
+        : 0;
+      
+      // Get largest and smallest bet
+      const amounts = stats.flatMap(stat => [
+        stat._max.amount || 0,
+        stat._min.amount || 0
+      ]).filter(amount => amount > 0);
+      
+      result.largest_bet = amounts.length > 0 ? Math.max(...amounts) : 0;
+      result.smallest_bet = amounts.length > 0 ? Math.min(...amounts) : 0;
+      
+      return result;
     } catch (error) {
       logger.error('Error getting total bet stats:', error);
       throw error;
@@ -508,14 +568,10 @@ class Bet {
 
   static async delete(betId) {
     try {
-      const query = `
-        DELETE FROM ${this.tableName} 
-        WHERE bet_id = $1
-        RETURNING *
-      `;
-
-      const result = await db.query(query, [betId]);
-      return result.rows[0] || null;
+      const bet = await prisma.bet.delete({
+        where: { bet_id: parseInt(betId) }
+      });
+      return bet;
     } catch (error) {
       logger.error('Error deleting bet:', error);
       throw error;
@@ -524,15 +580,10 @@ class Bet {
 
   static async exists(betId) {
     try {
-      const query = `
-        SELECT EXISTS(
-          SELECT 1 FROM ${this.tableName} 
-          WHERE bet_id = $1
-        )
-      `;
-
-      const result = await db.query(query, [betId]);
-      return result.rows[0].exists;
+      const count = await prisma.bet.count({
+        where: { bet_id: parseInt(betId) }
+      });
+      return count > 0;
     } catch (error) {
       logger.error('Error checking if bet exists:', error);
       throw error;
