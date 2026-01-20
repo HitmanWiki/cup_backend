@@ -1,4 +1,4 @@
-// api/index.js - COMPLETE SERVER.JS STRUCTURE FOR VERCELL (FIXED)
+// api/index.js - COMPLETE WITH FIXED ENDPOINTS
 require('dotenv').config();
 const express = require('express');
 const helmet = require('helmet');
@@ -8,7 +8,7 @@ const path = require('path');
 const { PrismaClient } = require('@prisma/client');
 
 const app = express();
-const prisma = new PrismaClient(); // <-- SINGLE DECLARATION HERE
+const prisma = new PrismaClient();
 
 // Import configurations (will be created in api/config/)
 let constants, validateConfig, database, AuthMiddleware, logger;
@@ -318,6 +318,34 @@ app.get('/', (req, res) => {
   });
 });
 
+// ==================== MAIN ENDPOINT THAT FRONTEND CALLS ====================
+// GET /api/v4/matches?limit=100
+app.get(`${FULL_API_PATH}/matches`, async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 100;
+    const page = parseInt(req.query.page) || 1;
+    
+    const result = await MatchModel.findAll({}, { limit: limit, page: page });
+    
+    res.json({
+      success: true,
+      data: result.data,
+      total: result.pagination.total,
+      pagination: {
+        page: result.pagination.page,
+        limit: result.pagination.limit,
+        totalPages: result.pagination.totalPages
+      }
+    });
+  } catch (error) {
+    logger.error('Error fetching matches:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // Debug sports API endpoint
 app.get(`${FULL_API_PATH}/debug/sports-api`, async (req, res) => {
   try {
@@ -343,7 +371,7 @@ app.get(`${FULL_API_PATH}/debug/sports-api`, async (req, res) => {
   }
 });
 
-// Get all matches
+// Get all matches (alternative endpoint)
 app.get(`${FULL_API_PATH}/matches/all`, async (req, res) => {
   try {
     const result = await MatchModel.findAll({}, { limit: 100, page: 1 });
@@ -469,6 +497,7 @@ app.use('*', (req, res) => {
     availableRoutes: [
       '/',
       '/health',
+      `${FULL_API_PATH}/matches`,
       `${FULL_API_PATH}/debug/sports-api`,
       `${FULL_API_PATH}/matches/all`,
       `${FULL_API_PATH}/matches/upcoming`,
@@ -544,11 +573,17 @@ console.log(`
 `);
 
 console.log('\n📋 Available Endpoints:');
-console.log(`   Health Check: /health`);
-console.log(`   Debug API: ${FULL_API_PATH}/debug/sports-api`);
-console.log(`   Upcoming Matches: ${FULL_API_PATH}/matches/upcoming`);
-console.log(`   Group Stage: ${FULL_API_PATH}/matches/groups`);
-console.log(`   Force Sync: /api/admin/sync-data`);
-console.log(`   All Matches: ${FULL_API_PATH}/matches/all`);
+console.log(`   1. Health Check: /health`);
+console.log(`   2. Main Matches: ${FULL_API_PATH}/matches`);
+console.log(`   3. Debug API: ${FULL_API_PATH}/debug/sports-api`);
+console.log(`   4. Upcoming Matches: ${FULL_API_PATH}/matches/upcoming`);
+console.log(`   5. Group Stage: ${FULL_API_PATH}/matches/groups`);
+console.log(`   6. Force Sync: /api/admin/sync-data`);
+console.log(`   7. All Matches: ${FULL_API_PATH}/matches/all`);
+
+console.log('\n🔗 Test these URLs:');
+console.log(`   https://cup-backend-red.vercel.app/api/v4/matches?limit=100`);
+console.log(`   https://cup-backend-red.vercel.app/api/v4/matches/groups`);
+console.log(`   https://cup-backend-red.vercel.app/health`);
 
 module.exports = app;
