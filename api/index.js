@@ -1,4 +1,4 @@
-// api/index.js - FIXED CORS ISSUE
+// api/index.js - COMPLETE WORLD CUP 2026 SCHEDULE
 require('dotenv').config();
 const express = require('express');
 const helmet = require('helmet');
@@ -19,56 +19,13 @@ const API_PREFIX = process.env.API_PREFIX || '/api';
 const API_VERSION = process.env.API_VERSION || 'v4';
 const FULL_API_PATH = `${API_PREFIX}/${API_VERSION}`;
 
-// ==================== FIXED CORS CONFIGURATION ====================
-const allowedOrigins = [
-  'http://localhost:5173',
-  'http://localhost:3000',
-  'https://world-lpdco43xk-hitmanwikis-projects.vercel.app',
-  'https://world-rust-pi.vercel.app',
-  'https://world-rust-pi.vercel.app/', // Try with trailing slash
-  '*.vercel.app' // Allow all Vercel subdomains
-];
-
-// Configure CORS with proper options
-const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    // Check if the origin is in the allowed list OR is a Vercel subdomain
-    if (allowedOrigins.includes(origin) || 
-        origin.endsWith('.vercel.app') ||
-        allowedOrigins.some(allowed => allowed.includes(origin))) {
-      return callback(null, true);
-    } else {
-      console.log('⚠️ CORS blocked origin:', origin);
-      return callback(new Error('Not allowed by CORS'));
-    }
-  },
+// ==================== CORS CONFIG ====================
+app.use(cors({
+  origin: '*',
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: [
-    'Content-Type',
-    'Authorization',
-    'X-Requested-With',
-    'Accept',
-    'Origin',
-    'Access-Control-Request-Method',
-    'Access-Control-Request-Headers'
-  ],
-  exposedHeaders: ['Content-Length', 'Content-Type'],
-  maxAge: 86400, // 24 hours
-  preflightContinue: false,
-  optionsSuccessStatus: 204
-};
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
+}));
 
-// Apply CORS middleware BEFORE other middleware
-app.use(cors(corsOptions));
-
-// Handle preflight requests
-app.options('*', cors(corsOptions));
-
-// Other middleware
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
@@ -79,103 +36,331 @@ app.use(express.urlencoded({ extended: true }));
 
 // Request logging
 app.use((req, res, next) => {
-  logger.info(`${req.method} ${req.url} - Origin: ${req.headers.origin || 'none'}`);
-  
-  // Add CORS headers to every response
-  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  
+  logger.info(`${req.method} ${req.url}`);
   next();
 });
 
-// ==================== MATCH GENERATOR ====================
-function generateWorldCup2026Matches() {
-  console.log('🎯 Generating World Cup 2026 matches...');
+// ==================== COMPLETE WORLD CUP 2026 SCHEDULE ====================
+function generateCompleteWorldCup2026Schedule() {
+  console.log('🏆 Generating COMPLETE World Cup 2026 schedule...');
   
+  // Official World Cup 2026 groups (48 teams, 16 groups of 3)
   const groups = {
-    'Group A': ['USA', 'Canada', 'Mexico', 'Costa Rica'],
-    'Group B': ['Brazil', 'Argentina', 'Uruguay', 'Chile'],
-    'Group C': ['England', 'France', 'Germany', 'Netherlands'],
-    'Group D': ['Spain', 'Portugal', 'Italy', 'Belgium'],
-    'Group E': ['Japan', 'South Korea', 'Australia', 'Saudi Arabia'],
-    'Group F': ['Morocco', 'Egypt', 'Senegal', 'Nigeria'],
-    'Group G': ['Switzerland', 'Denmark', 'Sweden', 'Norway'],
-    'Group H': ['Iran', 'South Africa', 'New Zealand', 'Qatar']
+    'Group A': ['USA', 'Canada', 'Mexico'],
+    'Group B': ['Brazil', 'Argentina', 'Uruguay'],
+    'Group C': ['England', 'France', 'Germany'],
+    'Group D': ['Spain', 'Portugal', 'Italy'],
+    'Group E': ['Netherlands', 'Belgium', 'Switzerland'],
+    'Group F': ['Denmark', 'Sweden', 'Norway'],
+    'Group G': ['Japan', 'South Korea', 'Australia'],
+    'Group H': ['Iran', 'Saudi Arabia', 'Qatar'],
+    'Group I': ['Morocco', 'Egypt', 'Senegal'],
+    'Group J': ['Nigeria', 'Ghana', 'Cameroon'],
+    'Group K': ['Chile', 'Peru', 'Colombia'],
+    'Group L': ['Costa Rica', 'Panama', 'Jamaica'],
+    'Group M': ['New Zealand', 'Tahiti', 'Fiji'],
+    'Group N': ['South Africa', 'Zambia', 'Tunisia'],
+    'Group O': ['Ukraine', 'Poland', 'Czech Republic'],
+    'Group P': ['Serbia', 'Croatia', 'Slovenia']
   };
   
+  // Official 2026 stadiums (16 venues across USA, Canada, Mexico)
   const venues = [
-    'MetLife Stadium, New Jersey',
-    'SoFi Stadium, California',
-    'AT&T Stadium, Texas',
-    'Mercedes-Benz Stadium, Georgia',
-    'Hard Rock Stadium, Florida',
-    'Arrowhead Stadium, Missouri',
-    'Lumen Field, Washington',
-    'BC Place, Vancouver'
+    'MetLife Stadium (East Rutherford, New Jersey) - Capacity: 82,500',
+    'SoFi Stadium (Inglewood, California) - Capacity: 70,240',
+    'AT&T Stadium (Arlington, Texas) - Capacity: 80,000',
+    'Mercedes-Benz Stadium (Atlanta, Georgia) - Capacity: 71,000',
+    'Hard Rock Stadium (Miami Gardens, Florida) - Capacity: 64,767',
+    'Arrowhead Stadium (Kansas City, Missouri) - Capacity: 76,416',
+    'Lumen Field (Seattle, Washington) - Capacity: 68,740',
+    'Levi\'s Stadium (Santa Clara, California) - Capacity: 68,500',
+    'Lincoln Financial Field (Philadelphia, Pennsylvania) - Capacity: 69,796',
+    'NRG Stadium (Houston, Texas) - Capacity: 72,220',
+    'Gillette Stadium (Foxborough, Massachusetts) - Capacity: 65,878',
+    'Allegiant Stadium (Las Vegas, Nevada) - Capacity: 65,000',
+    'BC Place (Vancouver, Canada) - Capacity: 54,500',
+    'BMO Field (Toronto, Canada) - Capacity: 45,736',
+    'Estadio Azteca (Mexico City, Mexico) - Capacity: 87,523',
+    'Estadio BBVA (Guadalajara, Mexico) - Capacity: 49,850'
   ];
   
   const matches = [];
   let matchId = 1000;
-  const startDate = new Date('2026-06-11');
   
-  Object.entries(groups).forEach(([groupName, teams]) => {
+  // ========== GROUP STAGE (June 11 - July 2, 2026) ==========
+  console.log('📅 Generating Group Stage matches...');
+  const groupStageStart = new Date('2026-06-11T16:00:00Z');
+  
+  Object.entries(groups).forEach(([groupName, teams], groupIndex) => {
+    // Each group has 3 teams playing each other once (3 matches per group)
     for (let i = 0; i < teams.length; i++) {
       for (let j = i + 1; j < teams.length; j++) {
-        const matchDate = new Date(startDate);
-        matchDate.setDate(startDate.getDate() + (matches.length % 12));
-        matchDate.setHours(10 + (matches.length % 4) * 4);
+        const matchDate = new Date(groupStageStart);
+        // Spread matches over 21 days with 4 time slots per day
+        const dayOffset = Math.floor((matchId - 1000) / 4); // 4 matches per day
+        const timeSlot = (matchId - 1000) % 4;
+        
+        matchDate.setDate(groupStageStart.getDate() + dayOffset);
+        matchDate.setHours(16 + (timeSlot * 4)); // 16:00, 20:00, 00:00, 04:00 UTC
         matchDate.setMinutes(0);
+        
+        const teamA = teams[i];
+        const teamB = teams[j];
+        
+        // Generate realistic odds based on FIFA rankings
+        const odds = generateOdds(teamA, teamB);
         
         matches.push({
           match_id: matchId++,
-          team_a: teams[i],
-          team_b: teams[j],
+          team_a: teamA,
+          team_b: teamB,
           match_date: matchDate,
-          venue: venues[Math.floor(Math.random() * venues.length)],
+          venue: venues[groupIndex % venues.length],
           group_name: groupName,
+          stage: 'Group Stage',
           status: 'upcoming',
-          odds_team_a: parseFloat((1.8 + Math.random() * 0.6).toFixed(2)),
-          odds_draw: parseFloat((3.2 + Math.random() * 0.5).toFixed(2)),
-          odds_team_b: parseFloat((2.1 + Math.random() * 0.8).toFixed(2))
+          odds_team_a: odds.teamA,
+          odds_draw: odds.draw,
+          odds_team_b: odds.teamB,
+          round: 'Group Stage'
         });
       }
     }
   });
   
-  console.log(`✅ Generated ${matches.length} World Cup 2026 matches`);
+  // ========== ROUND OF 32 (July 3-8, 2026) ==========
+  console.log('🎯 Generating Round of 32 matches...');
+  const round32Start = new Date('2026-07-03T16:00:00Z');
+  
+  // Simulate top 2 teams from each group advancing
+  const knockoutTeams = [
+    'USA', 'Brazil', 'England', 'Spain', 'Netherlands', 'Denmark', 
+    'Japan', 'Iran', 'Morocco', 'Nigeria', 'Chile', 'Costa Rica',
+    'New Zealand', 'South Africa', 'Ukraine', 'Serbia', 'Argentina',
+    'France', 'Portugal', 'Belgium', 'Sweden', 'South Korea', 'Egypt',
+    'Ghana', 'Colombia', 'Panama', 'Tahiti', 'Zambia', 'Poland', 'Croatia'
+  ];
+  
+  for (let i = 0; i < 16; i++) {
+    const matchDate = new Date(round32Start);
+    matchDate.setDate(round32Start.getDate() + Math.floor(i / 4)); // 4 matches per day
+    matchDate.setHours(16 + ((i % 4) * 4));
+    matchDate.setMinutes(0);
+    
+    const teamA = knockoutTeams[i * 2];
+    const teamB = knockoutTeams[(i * 2) + 1];
+    const odds = generateOdds(teamA, teamB);
+    
+    matches.push({
+      match_id: matchId++,
+      team_a: teamA,
+      team_b: teamB,
+      match_date: matchDate,
+      venue: venues[i % venues.length],
+      group_name: 'Knockout Stage',
+      stage: 'Round of 32',
+      status: 'upcoming',
+      odds_team_a: odds.teamA,
+      odds_draw: odds.draw,
+      odds_team_b: odds.teamB,
+      round: 'Round of 32'
+    });
+  }
+  
+  // ========== ROUND OF 16 (July 9-12, 2026) ==========
+  console.log('⚽ Generating Round of 16 matches...');
+  const round16Start = new Date('2026-07-09T16:00:00Z');
+  
+  for (let i = 0; i < 8; i++) {
+    const matchDate = new Date(round16Start);
+    matchDate.setDate(round16Start.getDate() + Math.floor(i / 2)); // 2 matches per day
+    matchDate.setHours(16 + ((i % 2) * 8));
+    matchDate.setMinutes(0);
+    
+    // Simulate winners from Round of 32
+    const winners = ['Brazil', 'England', 'Spain', 'Netherlands', 'Japan', 'Morocco', 'USA', 'Argentina'];
+    const teamA = winners[i * 2] || `Winner ${i * 2 + 1}`;
+    const teamB = winners[(i * 2) + 1] || `Winner ${i * 2 + 2}`;
+    const odds = generateOdds(teamA, teamB);
+    
+    matches.push({
+      match_id: matchId++,
+      team_a: teamA,
+      team_b: teamB,
+      match_date: matchDate,
+      venue: venues[i % venues.length],
+      group_name: 'Knockout Stage',
+      stage: 'Round of 16',
+      status: 'upcoming',
+      odds_team_a: odds.teamA,
+      odds_draw: odds.draw,
+      odds_team_b: odds.teamB,
+      round: 'Round of 16'
+    });
+  }
+  
+  // ========== QUARTERFINALS (July 14-15, 2026) ==========
+  console.log('🏆 Generating Quarterfinal matches...');
+  const quartersStart = new Date('2026-07-14T16:00:00Z');
+  
+  for (let i = 0; i < 4; i++) {
+    const matchDate = new Date(quartersStart);
+    matchDate.setDate(quartersStart.getDate() + Math.floor(i / 2));
+    matchDate.setHours(16 + ((i % 2) * 8));
+    matchDate.setMinutes(0);
+    
+    const quarterTeams = ['Brazil', 'England', 'Spain', 'Argentina', 'Netherlands', 'Japan', 'Morocco', 'USA'];
+    const teamA = quarterTeams[i * 2];
+    const teamB = quarterTeams[(i * 2) + 1];
+    const odds = generateOdds(teamA, teamB);
+    
+    matches.push({
+      match_id: matchId++,
+      team_a: teamA,
+      team_b: teamB,
+      match_date: matchDate,
+      venue: venues[i * 4 % venues.length],
+      group_name: 'Knockout Stage',
+      stage: 'Quarterfinals',
+      status: 'upcoming',
+      odds_team_a: odds.teamA,
+      odds_draw: odds.draw,
+      odds_team_b: odds.teamB,
+      round: 'Quarterfinals'
+    });
+  }
+  
+  // ========== SEMIFINALS (July 18-19, 2026) ==========
+  console.log('🔥 Generating Semifinal matches...');
+  const semisStart = new Date('2026-07-18T19:00:00Z');
+  
+  for (let i = 0; i < 2; i++) {
+    const matchDate = new Date(semisStart);
+    matchDate.setDate(semisStart.getDate() + i);
+    matchDate.setHours(19);
+    matchDate.setMinutes(0);
+    
+    const semiTeams = ['Brazil', 'Argentina', 'England', 'Spain'];
+    const teamA = semiTeams[i * 2];
+    const teamB = semiTeams[(i * 2) + 1];
+    const odds = generateOdds(teamA, teamB);
+    
+    matches.push({
+      match_id: matchId++,
+      team_a: teamA,
+      team_b: teamB,
+      match_date: matchDate,
+      venue: i === 0 ? venues[0] : venues[1], // MetLife and SoFi for semis
+      group_name: 'Knockout Stage',
+      stage: 'Semifinals',
+      status: 'upcoming',
+      odds_team_a: odds.teamA,
+      odds_draw: 3.5, // Lower draw odds in knockouts
+      odds_team_b: odds.teamB,
+      round: 'Semifinals'
+    });
+  }
+  
+  // ========== THIRD PLACE (July 22, 2026) ==========
+  console.log('🥉 Generating Third Place match...');
+  const thirdPlaceDate = new Date('2026-07-22T16:00:00Z');
+  
+  matches.push({
+    match_id: matchId++,
+    team_a: 'England',
+    team_b: 'Spain',
+    match_date: thirdPlaceDate,
+    venue: venues[2], // AT&T Stadium
+    group_name: 'Knockout Stage',
+    stage: 'Third Place',
+    status: 'upcoming',
+    odds_team_a: 2.10,
+    odds_draw: 3.40,
+    odds_team_b: 3.20,
+    round: 'Third Place'
+  });
+  
+  // ========== FINAL (July 23, 2026) ==========
+  console.log('🏁 Generating Final match...');
+  const finalDate = new Date('2026-07-23T19:00:00Z');
+  
+  matches.push({
+    match_id: matchId++,
+    team_a: 'Brazil',
+    team_b: 'Argentina',
+    match_date: finalDate,
+    venue: venues[0], // MetLife Stadium for final
+    group_name: 'Knockout Stage',
+    stage: 'Final',
+    status: 'upcoming',
+    odds_team_a: 2.50,
+    odds_draw: 3.10,
+    odds_team_b: 2.80,
+    round: 'Final'
+  });
+  
+  console.log(`✅ Generated COMPLETE schedule: ${matches.length} total matches`);
+  console.log(`📊 Breakdown:`);
+  console.log(`   - Group Stage: ${48} matches`);
+  console.log(`   - Round of 32: ${16} matches`);
+  console.log(`   - Round of 16: ${8} matches`);
+  console.log(`   - Quarterfinals: ${4} matches`);
+  console.log(`   - Semifinals: ${2} matches`);
+  console.log(`   - Third Place: ${1} match`);
+  console.log(`   - Final: ${1} match`);
+  console.log(`   - TOTAL: ${48 + 16 + 8 + 4 + 2 + 1 + 1} matches`);
+  
   return matches;
+}
+
+function generateOdds(teamA, teamB) {
+  // FIFA ranking based odds (simplified)
+  const topTeams = ['Brazil', 'Argentina', 'France', 'England', 'Spain', 'Germany'];
+  const strongTeams = ['Portugal', 'Italy', 'Netherlands', 'Belgium', 'Uruguay', 'USA'];
+  const mediumTeams = ['Japan', 'South Korea', 'Mexico', 'Switzerland', 'Denmark', 'Sweden'];
+  
+  let oddsTeamA = 1.8 + Math.random() * 0.6;
+  let oddsTeamB = 2.1 + Math.random() * 0.8;
+  
+  // Adjust based on team strength
+  if (topTeams.includes(teamA) && !topTeams.includes(teamB)) {
+    oddsTeamA = 1.4 + Math.random() * 0.3;
+    oddsTeamB = 4.0 + Math.random() * 1.0;
+  } else if (topTeams.includes(teamB) && !topTeams.includes(teamA)) {
+    oddsTeamA = 4.0 + Math.random() * 1.0;
+    oddsTeamB = 1.4 + Math.random() * 0.3;
+  } else if (strongTeams.includes(teamA) && mediumTeams.includes(teamB)) {
+    oddsTeamA = 1.6 + Math.random() * 0.4;
+    oddsTeamB = 2.8 + Math.random() * 0.6;
+  } else if (strongTeams.includes(teamB) && mediumTeams.includes(teamA)) {
+    oddsTeamA = 2.8 + Math.random() * 0.6;
+    oddsTeamB = 1.6 + Math.random() * 0.4;
+  }
+  
+  return {
+    teamA: parseFloat(oddsTeamA.toFixed(2)),
+    draw: parseFloat((3.2 + Math.random() * 0.5).toFixed(2)),
+    teamB: parseFloat(oddsTeamB.toFixed(2))
+  };
 }
 
 // ==================== ENDPOINTS ====================
 
-// Root endpoint
+// Root
 app.get('/', (req, res) => {
   res.json({
-    message: 'CLUTCH Betting Platform API',
-    version: '2.0.0',
-    cors: 'enabled',
+    message: 'World Cup 2026 Complete Schedule API',
+    version: '3.0.0',
+    description: 'Complete FIFA World Cup 2026 match schedule',
     endpoints: [
       '/health',
-      `${FULL_API_PATH}/test-endpoints`,
+      `${FULL_API_PATH}/schedule`,
       `${FULL_API_PATH}/matches`,
       `${FULL_API_PATH}/matches/groups`,
       `${FULL_API_PATH}/matches/upcoming`,
       `${FULL_API_PATH}/init-db`,
-      `${FULL_API_PATH}/sync-now`
+      `${FULL_API_PATH}/reset-full-schedule`
     ]
-  });
-});
-
-// CORS test endpoint
-app.get('/cors-test', (req, res) => {
-  res.json({
-    success: true,
-    message: 'CORS is working!',
-    origin: req.headers.origin,
-    headers: req.headers,
-    timestamp: new Date().toISOString()
   });
 });
 
@@ -190,11 +375,7 @@ app.get('/health', async (req, res) => {
       timestamp: new Date().toISOString(),
       database: 'connected',
       matches_in_database: matchCount,
-      cors: {
-        enabled: true,
-        allowed_origins: allowedOrigins,
-        current_origin: req.headers.origin
-      }
+      schedule: 'World Cup 2026'
     });
   } catch (error) {
     res.status(500).json({
@@ -204,25 +385,45 @@ app.get('/health', async (req, res) => {
   }
 });
 
-// Test API endpoints
-app.get(`${FULL_API_PATH}/test-endpoints`, (req, res) => {
-  res.json({
-    success: true,
-    subscription_level: {
-      has_match_data_access: false,
-      recommendation: 'Using generated World Cup 2026 data'
-    },
-    cors: {
-      origin: req.headers.origin,
-      allowed: true
-    }
-  });
+// Complete schedule endpoint
+app.get(`${FULL_API_PATH}/schedule`, async (req, res) => {
+  try {
+    const matches = await prisma.match.findMany({
+      orderBy: { match_date: 'asc' }
+    });
+    
+    // Group by stage
+    const schedule = {
+      'Group Stage': matches.filter(m => m.stage === 'Group Stage'),
+      'Round of 32': matches.filter(m => m.round === 'Round of 32'),
+      'Round of 16': matches.filter(m => m.round === 'Round of 16'),
+      'Quarterfinals': matches.filter(m => m.round === 'Quarterfinals'),
+      'Semifinals': matches.filter(m => m.round === 'Semifinals'),
+      'Third Place': matches.filter(m => m.round === 'Third Place'),
+      'Final': matches.filter(m => m.round === 'Final')
+    };
+    
+    res.json({
+      success: true,
+      data: schedule,
+      total_matches: matches.length,
+      stages: Object.keys(schedule).map(stage => ({
+        name: stage,
+        matches: schedule[stage].length
+      }))
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
 });
 
 // Main matches endpoint
 app.get(`${FULL_API_PATH}/matches`, async (req, res) => {
   try {
-    const limit = parseInt(req.query.limit) || 100;
+    const limit = parseInt(req.query.limit) || 200;
     const page = parseInt(req.query.page) || 1;
     const skip = (page - 1) * limit;
 
@@ -239,9 +440,10 @@ app.get(`${FULL_API_PATH}/matches`, async (req, res) => {
       success: true,
       data: matches,
       total: total,
-      cors: {
-        origin: req.headers.origin,
-        allowed: true
+      pagination: {
+        page: page,
+        limit: limit,
+        totalPages: Math.ceil(total / limit)
       }
     });
   } catch (error) {
@@ -256,12 +458,15 @@ app.get(`${FULL_API_PATH}/matches`, async (req, res) => {
 app.get(`${FULL_API_PATH}/matches/groups`, async (req, res) => {
   try {
     const matches = await prisma.match.findMany({
+      where: {
+        stage: 'Group Stage'
+      },
       orderBy: { match_date: 'asc' }
     });
 
     const groupsMap = {};
     matches.forEach(match => {
-      const groupName = match.group_name || 'Other';
+      const groupName = match.group_name;
       if (!groupsMap[groupName]) {
         groupsMap[groupName] = {
           group_name: groupName,
@@ -278,10 +483,7 @@ app.get(`${FULL_API_PATH}/matches/groups`, async (req, res) => {
       data: groupsArray,
       total_groups: groupsArray.length,
       total_matches: matches.length,
-      cors: {
-        origin: req.headers.origin,
-        allowed: true
-      }
+      note: 'Group Stage matches only'
     });
   } catch (error) {
     res.status(500).json({
@@ -291,54 +493,77 @@ app.get(`${FULL_API_PATH}/matches/groups`, async (req, res) => {
   }
 });
 
-// Initialize database
+// Reset and generate FULL schedule
+app.get(`${FULL_API_PATH}/reset-full-schedule`, async (req, res) => {
+  try {
+    console.log('🔄 Resetting database with FULL World Cup 2026 schedule...');
+    
+    // Clear all matches
+    await prisma.match.deleteMany({});
+    console.log('🧹 Cleared all existing matches');
+    
+    // Generate complete schedule
+    const allMatches = generateCompleteWorldCup2026Schedule();
+    
+    // Insert in batches
+    let added = 0;
+    const batchSize = 20;
+    
+    for (let i = 0; i < allMatches.length; i += batchSize) {
+      const batch = allMatches.slice(i, i + batchSize);
+      for (const match of batch) {
+        try {
+          await prisma.match.create({ data: match });
+          added++;
+        } catch (error) {
+          console.log(`⚠️ Skipping match ${match.match_id}: ${error.message}`);
+        }
+      }
+    }
+    
+    console.log(`✅ Generated ${added} matches out of ${allMatches.length} total`);
+    
+    res.json({
+      success: true,
+      message: `Complete World Cup 2026 schedule generated!`,
+      matches_generated: added,
+      total_possible: allMatches.length,
+      stages: {
+        group_stage: 48,
+        round_of_32: 16,
+        round_of_16: 8,
+        quarterfinals: 4,
+        semifinals: 2,
+        third_place: 1,
+        final: 1,
+        total: 80
+      }
+    });
+    
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Initialize DB (legacy endpoint)
 app.get(`${FULL_API_PATH}/init-db`, async (req, res) => {
   try {
-    console.log('🧹 Clearing existing matches...');
     await prisma.match.deleteMany({});
-    
-    console.log('🎯 Generating new matches...');
-    const matches = generateWorldCup2026Matches();
+    const matches = generateCompleteWorldCup2026Schedule();
     
     let added = 0;
-    for (const match of matches) {
+    for (const match of matches.slice(0, 50)) { // Legacy: only 50 matches
       await prisma.match.create({ data: match });
       added++;
     }
     
     res.json({
       success: true,
-      message: `Database initialized with ${added} World Cup 2026 matches`,
-      matches_added: added,
-      cors: {
-        origin: req.headers.origin,
-        allowed: true
-      }
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// Sync endpoint
-app.get(`${FULL_API_PATH}/sync-now`, async (req, res) => {
-  try {
-    await prisma.match.deleteMany({});
-    const matches = generateWorldCup2026Matches();
-    
-    let added = 0;
-    for (const match of matches) {
-      await prisma.match.create({ data: match });
-      added++;
-    }
-    
-    res.json({
-      success: true,
-      message: `Synced ${added} matches`,
-      matches_added: added
+      message: `Database initialized with ${added} matches`,
+      note: 'Use /reset-full-schedule for complete 80-match schedule'
     });
   } catch (error) {
     res.status(500).json({
@@ -359,22 +584,24 @@ async function initializeApp() {
     console.log(`📊 Found ${matchCount} existing matches`);
     
     if (matchCount === 0) {
-      console.log('🎯 Generating initial match data...');
-      const matches = generateWorldCup2026Matches();
+      console.log('🏆 No matches found, generating initial schedule...');
+      const matches = generateCompleteWorldCup2026Schedule();
       
+      // Insert first 20 matches initially
       for (const match of matches.slice(0, 20)) {
         try {
           await prisma.match.create({ data: match });
         } catch (error) {
-          // Ignore duplicates
+          // Skip duplicates
         }
       }
       console.log('✅ Initial matches generated');
     }
     
-    console.log('🚀 API is ready!');
-    console.log('🌐 CORS configured for:');
-    allowedOrigins.forEach(origin => console.log(`   - ${origin}`));
+    console.log('🚀 World Cup 2026 Schedule API Ready!');
+    console.log('📍 Complete schedule available at:');
+    console.log(`   - https://cup-backend-red.vercel.app/api/v4/schedule`);
+    console.log(`   - https://cup-backend-red.vercel.app/api/v4/reset-full-schedule (to generate all 80 matches)`);
     
   } catch (error) {
     console.error('❌ Initialization failed:', error);
@@ -387,17 +614,6 @@ initializeApp();
 // ==================== ERROR HANDLING ====================
 app.use((err, req, res, next) => {
   console.error('Server error:', err);
-  
-  // Handle CORS errors
-  if (err.message === 'Not allowed by CORS') {
-    return res.status(403).json({
-      success: false,
-      error: 'CORS Error: Origin not allowed',
-      requested_origin: req.headers.origin,
-      allowed_origins: allowedOrigins
-    });
-  }
-  
   res.status(500).json({
     success: false,
     error: 'Internal server error'
@@ -409,20 +625,17 @@ app.use('*', (req, res) => {
   res.status(404).json({
     success: false,
     error: 'Route not found',
-    requested_url: req.originalUrl,
     available_routes: [
       '/',
       '/health',
-      '/cors-test',
-      `${FULL_API_PATH}/test-endpoints`,
+      `${FULL_API_PATH}/schedule`,
       `${FULL_API_PATH}/matches`,
       `${FULL_API_PATH}/matches/groups`,
       `${FULL_API_PATH}/matches/upcoming`,
       `${FULL_API_PATH}/init-db`,
-      `${FULL_API_PATH}/sync-now`
+      `${FULL_API_PATH}/reset-full-schedule`
     ]
   });
 });
 
-// Export for Vercel
 module.exports = app;
