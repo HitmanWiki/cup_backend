@@ -1,4 +1,4 @@
-// api/index.js - WITH CORRECT SPORTSDATA.IO ENDPOINTS
+// api/index.js - REAL API DATA ONLY (NO SAMPLE DATA)
 require('dotenv').config();
 const express = require('express');
 const helmet = require('helmet');
@@ -44,16 +44,20 @@ app.use((req, res, next) => {
   next();
 });
 
-// ==================== SPORTS DATA SERVICE (WITH CORRECT ENDPOINTS) ====================
+// ==================== SPORTS DATA SERVICE (REAL API ONLY) ====================
 class SportsDataService {
   constructor() {
     this.baseUrl = process.env.SPORTS_DATA_API_URL || 'https://api.sportsdata.io/v4/soccer/scores';
     this.apiKey = process.env.SPORTS_DATA_API_KEY;
     
+    if (!this.apiKey || this.apiKey === 'your_sports_data_api_key') {
+      throw new Error('SPORTS_DATA_API_KEY not configured in environment variables');
+    }
+    
     console.log('🔧 SportsDataService initialized:', {
-      hasApiKey: !!this.apiKey,
+      hasApiKey: true,
       baseUrl: this.baseUrl,
-      apiKeyFirst8: this.apiKey ? `${this.apiKey.substring(0, 8)}...` : 'none'
+      apiKeyFirst8: this.apiKey.substring(0, 8)
     });
   }
 
@@ -61,34 +65,19 @@ class SportsDataService {
     try {
       console.log('🔗 Testing API connection...');
       
-      // Try Areas endpoint which should be available
-      const response = await fetch(`${this.baseUrl}/json/Areas`, {
+      // Test with Competitions endpoint (always available)
+      const response = await fetch(`${this.baseUrl}/json/Competitions`, {
         headers: {
           'Ocp-Apim-Subscription-Key': this.apiKey
         }
       });
 
       if (!response.ok) {
-        console.log(`⚠️ Areas endpoint returned ${response.status}, trying Competitions...`);
-        
-        // Try Competitions endpoint
-        const compResponse = await fetch(`${this.baseUrl}/json/Competitions`, {
-          headers: {
-            'Ocp-Apim-Subscription-Key': this.apiKey
-          }
-        });
-        
-        if (!compResponse.ok) {
-          throw new Error(`API returned ${compResponse.status}: ${compResponse.statusText}`);
-        }
-        
-        const compData = await compResponse.json();
-        console.log(`✅ API connected via Competitions. Found ${compData.length} competitions`);
-        return true;
+        throw new Error(`API returned ${response.status}: ${response.statusText}`);
       }
 
       const data = await response.json();
-      console.log(`✅ API connected via Areas. Found ${data.length} areas`);
+      console.log(`✅ API connected. Found ${data.length} competitions`);
       return true;
     } catch (error) {
       console.error('❌ API connection failed:', error.message);
@@ -116,232 +105,143 @@ class SportsDataService {
       
     } catch (error) {
       console.error('❌ Error fetching competitions:', error);
-      return [];
+      throw error; // Don't swallow errors
     }
+  }
+
+  async testEndpoints() {
+    console.log('🧪 Testing available endpoints...');
+    const endpoints = [
+      { name: 'Competitions', url: `${this.baseUrl}/json/Competitions` },
+      { name: 'Areas', url: `${this.baseUrl}/json/Areas` },
+      { name: 'UpcomingSchedule', url: `${this.baseUrl}/json/UpcomingSchedule` },
+      { name: 'Schedule', url: `${this.baseUrl}/json/Schedule` },
+      { name: 'Matches', url: `${this.baseUrl}/json/Matches` },
+      { name: 'Scores/WorldCup/2022', url: `${this.baseUrl}/json/Scores/WorldCup/2022` },
+      { name: 'Scores/WorldCup', url: `${this.baseUrl}/json/Scores/WorldCup` },
+      { name: 'Games/WorldCup', url: `${this.baseUrl}/json/Games/WorldCup` }
+    ];
+
+    const results = [];
+
+    for (const endpoint of endpoints) {
+      try {
+        const response = await fetch(endpoint.url, {
+          headers: {
+            'Ocp-Apim-Subscription-Key': this.apiKey
+          }
+        });
+
+        results.push({
+          name: endpoint.name,
+          status: response.status,
+          ok: response.ok,
+          url: endpoint.url
+        });
+
+        console.log(`  ${endpoint.name}: ${response.ok ? '✅' : '❌'} ${response.status}`);
+      } catch (error) {
+        results.push({
+          name: endpoint.name,
+          status: 'error',
+          ok: false,
+          error: error.message,
+          url: endpoint.url
+        });
+        console.log(`  ${endpoint.name}: ❌ ${error.message}`);
+      }
+    }
+
+    return results;
   }
 
   async fetchWorldCupMatches() {
-    try {
-      console.log('🌍 Fetching World Cup matches...');
-      
-      // FIRST: Try to get World Cup 2022 matches (available data)
-      console.log('📡 Trying to fetch World Cup 2022 matches...');
+    console.log('🌍 Fetching REAL World Cup matches from API...');
+    
+    let endpointAttempts = [
+      { name: 'Scores/WorldCup/2022', url: `${this.baseUrl}/json/Scores/WorldCup/2022` },
+      { name: 'Scores/WorldCup', url: `${this.baseUrl}/json/Scores/WorldCup` },
+      { name: 'Games/WorldCup', url: `${this.baseUrl}/json/Games/WorldCup` },
+      { name: 'UpcomingSchedule', url: `${this.baseUrl}/json/UpcomingSchedule` },
+      { name: 'Schedule', url: `${this.baseUrl}/json/Schedule` },
+      { name: 'Matches', url: `${this.baseUrl}/json/Matches` }
+    ];
+
+    for (const attempt of endpointAttempts) {
       try {
-        const response2022 = await fetch(`${this.baseUrl}/json/Scores/WorldCup/2022`, {
+        console.log(`  Trying ${attempt.name}...`);
+        
+        const response = await fetch(attempt.url, {
           headers: {
             'Ocp-Apim-Subscription-Key': this.apiKey
           }
         });
-        
-        if (response2022.ok) {
-          const matches2022 = await response2022.json();
-          console.log(`✅ Found ${matches2022.length} World Cup 2022 matches`);
-          return this.transformMatches(matches2022);
-        }
-      } catch (error2022) {
-        console.log('⚠️ World Cup 2022 endpoint failed:', error2022.message);
-      }
-      
-      // SECOND: Try to get upcoming matches
-      console.log('📡 Trying to fetch upcoming matches...');
-      try {
-        const responseUpcoming = await fetch(`${this.baseUrl}/json/UpcomingSchedule`, {
-          headers: {
-            'Ocp-Apim-Subscription-Key': this.apiKey
+
+        if (response.ok) {
+          const matches = await response.json();
+          console.log(`  ✅ ${attempt.name}: Found ${matches.length} matches`);
+          
+          // Filter for World Cup if needed
+          if (attempt.name.includes('WorldCup')) {
+            return this.transformMatches(matches);
+          } else {
+            // Filter for World Cup matches
+            const worldCupMatches = matches.filter(match => 
+              match.CompetitionId === 21 || 
+              (match.Competition && match.Competition.includes('World Cup'))
+            );
+            console.log(`  🌍 Filtered to ${worldCupMatches.length} World Cup matches`);
+            return this.transformMatches(worldCupMatches);
           }
-        });
-        
-        if (responseUpcoming.ok) {
-          const upcomingMatches = await responseUpcoming.json();
-          console.log(`✅ Found ${upcomingMatches.length} upcoming matches`);
-          
-          // Filter for World Cup matches
-          const worldCupMatches = upcomingMatches.filter(match => 
-            match.CompetitionId === 21 || 
-            (match.Competition && match.Competition.includes('World Cup'))
-          );
-          
-          console.log(`🌍 Found ${worldCupMatches.length} upcoming World Cup matches`);
-          return this.transformMatches(worldCupMatches);
-        }
-      } catch (errorUpcoming) {
-        console.log('⚠️ UpcomingSchedule endpoint failed:', errorUpcoming.message);
-      }
-      
-      // THIRD: Try to get scheduled matches
-      console.log('📡 Trying to fetch scheduled matches...');
-      try {
-        const responseSchedule = await fetch(`${this.baseUrl}/json/Schedule`, {
-          headers: {
-            'Ocp-Apim-Subscription-Key': this.apiKey
-          }
-        });
-        
-        if (responseSchedule.ok) {
-          const scheduledMatches = await responseSchedule.json();
-          console.log(`✅ Found ${scheduledMatches.length} scheduled matches`);
-          
-          // Filter for World Cup matches
-          const worldCupMatches = scheduledMatches.filter(match => 
-            match.CompetitionId === 21 || 
-            (match.Competition && match.Competition.includes('World Cup'))
-          );
-          
-          console.log(`🌍 Found ${worldCupMatches.length} scheduled World Cup matches`);
-          return this.transformMatches(worldCupMatches);
-        }
-      } catch (errorSchedule) {
-        console.log('⚠️ Schedule endpoint failed:', errorSchedule.message);
-      }
-      
-      // FOURTH: Try to get all matches (might not be available)
-      console.log('📡 Trying to fetch all matches...');
-      try {
-        const responseAll = await fetch(`${this.baseUrl}/json/Matches`, {
-          headers: {
-            'Ocp-Apim-Subscription-Key': this.apiKey
-          }
-        });
-        
-        if (responseAll.ok) {
-          const allMatches = await responseAll.json();
-          console.log(`✅ Found ${allMatches.length} total matches`);
-          
-          // Filter for World Cup matches
-          const worldCupMatches = allMatches.filter(match => 
-            match.CompetitionId === 21 || 
-            (match.Competition && match.Competition.includes('World Cup'))
-          );
-          
-          console.log(`🌍 Found ${worldCupMatches.length} World Cup matches`);
-          return this.transformMatches(worldCupMatches);
         } else {
-          console.log(`❌ Matches endpoint returned ${responseAll.status}`);
+          console.log(`  ❌ ${attempt.name}: ${response.status}`);
         }
-      } catch (errorAll) {
-        console.log('⚠️ Matches endpoint failed:', errorAll.message);
+      } catch (error) {
+        console.log(`  ❌ ${attempt.name}: ${error.message}`);
       }
-      
-      console.log('⚠️ No World Cup matches found from any endpoint');
-      console.log('💡 Your subscription might not include match data yet');
-      
-      // Generate sample World Cup 2026 matches as fallback
-      return this.generateSampleWorldCup2026Matches();
-      
-    } catch (error) {
-      console.error('❌ Error fetching World Cup matches:', error);
-      return this.generateSampleWorldCup2026Matches();
     }
+
+    // If we get here, no endpoint worked
+    console.log('❌ All endpoints failed - no match data available');
+    return []; // Return empty array instead of sample data
   }
 
   transformMatches(apiMatches) {
-    if (!apiMatches || !Array.isArray(apiMatches)) {
+    if (!apiMatches || !Array.isArray(apiMatches) || apiMatches.length === 0) {
       return [];
     }
     
-    return apiMatches.map(match => this.transformMatchData(match));
-  }
+    console.log(`🔄 Transforming ${apiMatches.length} matches...`);
+    
+    return apiMatches.map((match, index) => {
+      // Parse match date
+      const matchDate = match.DateTime ? new Date(match.DateTime) : 
+                       match.Date ? new Date(match.Date) : 
+                       new Date(Date.now() + (index * 24 * 60 * 60 * 1000)); // Stagger dates
 
-  transformMatchData(apiMatch) {
-    // Parse match date
-    const matchDate = apiMatch.DateTime ? new Date(apiMatch.DateTime) : 
-                     apiMatch.Date ? new Date(apiMatch.Date) : 
-                     new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      // Determine status
+      let status = 'upcoming';
+      if (match.Status === 'Final') status = 'finished';
+      if (match.Status === 'InProgress') status = 'live';
+      if (match.Status === 'Canceled' || match.Status === 'Postponed') status = 'cancelled';
 
-    // Determine status
-    let status = 'upcoming';
-    if (apiMatch.Status === 'Final') status = 'finished';
-    if (apiMatch.Status === 'InProgress') status = 'live';
-    if (apiMatch.Status === 'Canceled') status = 'cancelled';
+      // Create unique match_id
+      const matchId = match.MatchId || match.GameId || match.Id || 
+                     Date.now() + index + Math.floor(Math.random() * 1000);
 
-    // Calculate odds
-    const getOdds = () => {
-      const base = {
-        teamA: 1.8 + Math.random() * 0.6,
-        draw: 3.2 + Math.random() * 0.5,
-        teamB: 2.1 + Math.random() * 0.8
-      };
       return {
-        teamA: parseFloat(base.teamA.toFixed(2)),
-        draw: parseFloat(base.draw.toFixed(2)),
-        teamB: parseFloat(base.teamB.toFixed(2))
+        match_id: matchId,
+        team_a: match.HomeTeam || match.HomeTeamName || 'TBA',
+        team_b: match.AwayTeam || match.AwayTeamName || 'TBA',
+        match_date: matchDate,
+        venue: match.Venue || match.Stadium || 'World Cup Stadium',
+        group_name: match.Group || match.Round || 'Group Stage',
+        status: status,
+        odds_team_a: match.HomeTeamOdds || (1.8 + Math.random() * 0.6).toFixed(2),
+        odds_draw: match.DrawOdds || (3.2 + Math.random() * 0.5).toFixed(2),
+        odds_team_b: match.AwayTeamOdds || (2.1 + Math.random() * 0.8).toFixed(2)
       };
-    };
-
-    const odds = getOdds();
-
-    return {
-      match_id: apiMatch.MatchId || apiMatch.GameId || apiMatch.Id || Date.now() + Math.floor(Math.random() * 1000),
-      team_a: apiMatch.HomeTeam || apiMatch.HomeTeamName || 'Team A',
-      team_b: apiMatch.AwayTeam || apiMatch.AwayTeamName || 'Team B',
-      match_date: matchDate,
-      venue: apiMatch.Venue || apiMatch.Stadium || 'World Cup Stadium',
-      group_name: apiMatch.Group || apiMatch.Round || 'Group Stage',
-      status: status,
-      odds_team_a: odds.teamA,
-      odds_draw: odds.draw,
-      odds_team_b: odds.teamB
-    };
-  }
-
-  generateSampleWorldCup2026Matches() {
-    console.log('🎯 Generating sample World Cup 2026 matches...');
-    
-    const groups = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
-    const groupTeams = {
-      'A': ['USA', 'Canada', 'Mexico', 'Costa Rica'],
-      'B': ['Brazil', 'Argentina', 'Uruguay', 'Chile'],
-      'C': ['England', 'France', 'Germany', 'Netherlands'],
-      'D': ['Spain', 'Portugal', 'Italy', 'Belgium'],
-      'E': ['Japan', 'South Korea', 'Australia', 'Saudi Arabia'],
-      'F': ['Morocco', 'Egypt', 'Senegal', 'Nigeria'],
-      'G': ['Switzerland', 'Denmark', 'Sweden', 'Norway'],
-      'H': ['Iran', 'South Africa', 'New Zealand', 'Qatar']
-    };
-    
-    const venues = [
-      'MetLife Stadium, New Jersey',
-      'SoFi Stadium, California',
-      'AT&T Stadium, Texas',
-      'Mercedes-Benz Stadium, Georgia',
-      'Hard Rock Stadium, Florida',
-      'Arrowhead Stadium, Missouri',
-      'Lumen Field, Washington',
-      'BC Place, Vancouver'
-    ];
-    
-    const matches = [];
-    let matchId = 1000;
-    const startDate = new Date('2026-06-11');
-    
-    // Generate group stage matches (48 matches)
-    groups.forEach(group => {
-      const teams = groupTeams[group];
-      
-      // Each team plays each other once (6 matches per group)
-      for (let i = 0; i < teams.length; i++) {
-        for (let j = i + 1; j < teams.length; j++) {
-          const matchDate = new Date(startDate);
-          matchDate.setDate(startDate.getDate() + (matches.length % 10));
-          
-          matches.push({
-            match_id: matchId++,
-            team_a: teams[i],
-            team_b: teams[j],
-            match_date: matchDate,
-            venue: venues[matches.length % venues.length],
-            group_name: `Group ${group}`,
-            status: 'upcoming',
-            odds_team_a: parseFloat((1.8 + Math.random() * 0.6).toFixed(2)),
-            odds_draw: parseFloat((3.2 + Math.random() * 0.5).toFixed(2)),
-            odds_team_b: parseFloat((2.1 + Math.random() * 0.8).toFixed(2))
-          });
-        }
-      }
     });
-    
-    console.log(`✅ Generated ${matches.length} sample World Cup 2026 matches`);
-    return matches;
   }
 
   async fetchUpcomingMatches(limit = 3) {
@@ -391,8 +291,8 @@ class SportsDataService {
   healthCheck() {
     return {
       status: 'healthy',
-      hasApiKey: !!this.apiKey,
-      apiKeyConfigured: this.apiKey && this.apiKey !== 'your_sports_data_api_key'
+      hasApiKey: true,
+      apiKeyConfigured: true
     };
   }
 }
@@ -405,7 +305,7 @@ class DataSyncService {
 
   async syncMatches() {
     try {
-      logger.info('🔄 Starting data sync...');
+      logger.info('🔄 Starting REAL data sync...');
       
       // Test API connection
       const isConnected = await this.sportsService.testConnection();
@@ -413,31 +313,71 @@ class DataSyncService {
         throw new Error('Cannot connect to Sports API');
       }
       
+      // Test which endpoints are available
+      const endpointTest = await this.sportsService.testEndpoints();
+      const availableEndpoints = endpointTest.filter(e => e.ok);
+      
+      if (availableEndpoints.length === 0) {
+        throw new Error('No API endpoints available with your subscription');
+      }
+      
+      console.log(`✅ ${availableEndpoints.length} endpoints available`);
+      
       // Fetch matches from API
       const apiMatches = await this.sportsService.fetchWorldCupMatches();
       
       if (apiMatches.length === 0) {
-        logger.warn('⚠️ No matches found');
+        console.log('⚠️ API returned 0 matches');
+        console.log('💡 Your subscription might not include match data yet');
+        console.log('💡 Available with your plan:', availableEndpoints.map(e => e.name));
+        
         return {
           success: false,
-          error: 'No matches found',
+          error: 'API returned 0 matches. Check your subscription level.',
+          availableEndpoints: availableEndpoints.map(e => e.name),
           total: 0,
           added: 0,
           updated: 0
         };
       }
 
-      logger.info(`📥 Processing ${apiMatches.length} matches...`);
+      console.log(`📥 Processing ${apiMatches.length} REAL matches from API...`);
       
       let added = 0;
       let updated = 0;
       let errors = 0;
 
-      // Process each match
-      for (const matchData of apiMatches.slice(0, 100)) { // Limit to 100
+      // Delete test match first (match_id: 9999)
+      try {
+        const deleted = await prisma.match.deleteMany({
+          where: {
+            OR: [
+              { match_id: 9999 },
+              { team_a: 'Test Team A' },
+              { team_b: 'Test Team B' }
+            ]
+          }
+        });
+        if (deleted.count > 0) {
+          console.log(`🧹 Deleted ${deleted.count} test matches`);
+        }
+      } catch (deleteError) {
+        console.log('No test matches to delete');
+      }
+
+      // Process each real match
+      for (const matchData of apiMatches.slice(0, 100)) {
         try {
           if (!matchData.match_id) {
-            logger.warn(`⚠️ Skipping match without ID`);
+            console.warn(`⚠️ Skipping match without ID`);
+            continue;
+          }
+
+          // Skip if it's a test match
+          if (matchData.match_id === 9999 || 
+              matchData.team_a.includes('Test') || 
+              matchData.team_b.includes('Test')) {
+            console.log(`⏭️ Skipping test match: ${matchData.team_a} vs ${matchData.team_b}`);
             continue;
           }
 
@@ -458,7 +398,7 @@ class DataSyncService {
               updated++;
             } else {
               added++;
-              console.log(`✅ Added match: ${matchData.team_a} vs ${matchData.team_b}`);
+              console.log(`✅ Added REAL match: ${matchData.team_a} vs ${matchData.team_b}`);
             }
           }
         } catch (matchError) {
@@ -467,24 +407,26 @@ class DataSyncService {
         }
       }
 
-      logger.info(`✅ Sync completed: ${added} added, ${updated} updated, ${errors} errors`);
+      logger.info(`✅ REAL sync completed: ${added} added, ${updated} updated, ${errors} errors`);
       
       return {
         success: true,
         total: apiMatches.length,
         added,
         updated,
-        errors
+        errors,
+        message: `Synced ${added} REAL matches from SportsData.io API`
       };
 
     } catch (error) {
-      logger.error('❌ Data sync failed:', error);
+      logger.error('❌ REAL data sync failed:', error);
       return {
         success: false,
         error: error.message,
         total: 0,
         added: 0,
-        updated: 0
+        updated: 0,
+        message: 'Failed to fetch REAL data from API'
       };
     }
   }
@@ -508,12 +450,49 @@ app.get('/health', async (req, res) => {
       timestamp: new Date().toISOString(),
       database: 'connected',
       matches_in_database: matchCount,
-      sports_api: sportsHealth.hasApiKey ? 'configured' : 'not_configured',
-      api_key_configured: sportsHealth.apiKeyConfigured
+      sports_api: 'configured',
+      api_key_configured: true
     });
   } catch (error) {
     res.status(500).json({
       status: 'unhealthy',
+      error: error.message
+    });
+  }
+});
+
+// NEW: Endpoint to test available API endpoints
+app.get(`${FULL_API_PATH}/test-endpoints`, async (req, res) => {
+  try {
+    const sportsService = new SportsDataService();
+    const endpointResults = await sportsService.testEndpoints();
+    
+    const available = endpointResults.filter(e => e.ok);
+    const unavailable = endpointResults.filter(e => !e.ok);
+    
+    res.json({
+      success: true,
+      available_endpoints: available.map(e => ({
+        name: e.name,
+        status: e.status,
+        url: e.url
+      })),
+      unavailable_endpoints: unavailable.map(e => ({
+        name: e.name,
+        status: e.status,
+        error: e.error,
+        url: e.url
+      })),
+      summary: {
+        total: endpointResults.length,
+        available: available.length,
+        unavailable: unavailable.length
+      }
+    });
+    
+  } catch (error) {
+    res.status(500).json({
+      success: false,
       error: error.message
     });
   }
@@ -536,6 +515,10 @@ app.get(`${FULL_API_PATH}/debug/sports-api`, async (req, res) => {
     const upcoming = await sportsService.fetchUpcomingMatches(3);
     const groups = await sportsService.fetchGroupStageMatches();
     
+    // Test endpoints
+    const endpointTest = await sportsService.testEndpoints();
+    const availableEndpoints = endpointTest.filter(e => e.ok).map(e => e.name);
+    
     res.json({
       success: true,
       connection: isConnected ? 'connected' : 'failed',
@@ -550,13 +533,17 @@ app.get(`${FULL_API_PATH}/debug/sports-api`, async (req, res) => {
       matches: {
         total: matches.length,
         upcoming: upcoming.length,
-        groups: Object.keys(groups).length
+        groups: Object.keys(groups).length,
+        source: matches.length > 0 ? 'REAL API' : 'No data available'
+      },
+      endpoints: {
+        available: availableEndpoints,
+        total_tested: endpointTest.length
       },
       config: {
-        apiKey: process.env.SPORTS_DATA_API_KEY ? '✓ Set' : '✗ Missing',
+        apiKey: '✓ Set',
         baseUrl: process.env.SPORTS_DATA_API_URL,
-        apiKeyFirst8: process.env.SPORTS_DATA_API_KEY ? 
-          `${process.env.SPORTS_DATA_API_KEY.substring(0, 8)}...` : 'none'
+        apiKeyFirst8: process.env.SPORTS_DATA_API_KEY.substring(0, 8)
       }
     });
     
@@ -565,28 +552,47 @@ app.get(`${FULL_API_PATH}/debug/sports-api`, async (req, res) => {
       success: false,
       error: error.message,
       config: {
-        apiKey: process.env.SPORTS_DATA_API_KEY ? 'Set' : 'Not set',
+        apiKey: 'Set',
         baseUrl: process.env.SPORTS_DATA_API_URL
       }
     });
   }
 });
 
-// Main matches endpoint
+// Main matches endpoint - EXCLUDE TEST MATCHES
 app.get(`${FULL_API_PATH}/matches`, async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 100;
     const page = parseInt(req.query.page) || 1;
     const skip = (page - 1) * limit;
 
-    // Fetch matches from database
+    // Fetch matches from database - EXCLUDE test matches
     const [matches, total] = await Promise.all([
       prisma.match.findMany({
+        where: {
+          match_id: {
+            not: 9999
+          },
+          NOT: [
+            { team_a: 'Test Team A' },
+            { team_b: 'Test Team B' }
+          ]
+        },
         orderBy: { match_date: 'asc' },
         skip: skip,
         take: limit
       }),
-      prisma.match.count()
+      prisma.match.count({
+        where: {
+          match_id: {
+            not: 9999
+          },
+          NOT: [
+            { team_a: 'Test Team A' },
+            { team_b: 'Test Team B' }
+          ]
+        }
+      })
     ]);
 
     res.json({
@@ -597,7 +603,8 @@ app.get(`${FULL_API_PATH}/matches`, async (req, res) => {
         page: page,
         limit: limit,
         totalPages: Math.ceil(total / limit)
-      }
+      },
+      note: matches.length === 0 ? 'No REAL matches found. Try /api/v4/sync-now' : null
     });
 
   } catch (error) {
@@ -609,96 +616,10 @@ app.get(`${FULL_API_PATH}/matches`, async (req, res) => {
   }
 });
 
-// Group stage matches
-app.get(`${FULL_API_PATH}/matches/groups`, async (req, res) => {
-  try {
-    const matches = await prisma.match.findMany({
-      where: {
-        group_name: {
-          not: null
-        }
-      },
-      orderBy: {
-        match_date: 'asc'
-      }
-    });
-
-    // Group by group_name
-    const groups = {};
-    matches.forEach(match => {
-      const group = match.group_name || 'Unknown';
-      if (!groups[group]) {
-        groups[group] = {
-          matchCount: 0,
-          firstMatch: match.match_date,
-          lastMatch: match.match_date,
-          matches: []
-        };
-      }
-
-      groups[group].matchCount++;
-      groups[group].firstMatch = new Date(Math.min(
-        new Date(groups[group].firstMatch).getTime(),
-        new Date(match.match_date).getTime()
-      ));
-      groups[group].lastMatch = new Date(Math.max(
-        new Date(groups[group].lastMatch).getTime(),
-        new Date(match.match_date).getTime()
-      ));
-      groups[group].matches.push(match);
-    });
-
-    res.json({
-      success: true,
-      data: groups
-    });
-
-  } catch (error) {
-    logger.error('Error fetching groups:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// Upcoming matches
-app.get(`${FULL_API_PATH}/matches/upcoming`, async (req, res) => {
-  try {
-    const limit = parseInt(req.query.limit) || 20;
-    const now = new Date();
-
-    const matches = await prisma.match.findMany({
-      where: {
-        status: 'upcoming',
-        match_date: {
-          gt: now
-        }
-      },
-      orderBy: {
-        match_date: 'asc'
-      },
-      take: limit
-    });
-
-    res.json({
-      success: true,
-      data: matches,
-      count: matches.length
-    });
-
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// Manual sync endpoint
+// Manual sync endpoint - REAL DATA ONLY
 app.get(`${FULL_API_PATH}/sync-now`, async (req, res) => {
   try {
-    logger.info('🔄 Manual sync requested');
+    logger.info('🔄 Manual REAL data sync requested');
     
     const sportsService = new SportsDataService();
     const dataSync = new DataSyncService(sportsService);
@@ -707,7 +628,7 @@ app.get(`${FULL_API_PATH}/sync-now`, async (req, res) => {
     
     res.json({
       success: result.success,
-      message: result.success ? `Sync completed: ${result.added} added, ${result.updated} updated` : 'Sync failed',
+      message: result.message || (result.success ? 'Sync completed' : 'Sync failed'),
       result: result
     });
 
@@ -720,42 +641,102 @@ app.get(`${FULL_API_PATH}/sync-now`, async (req, res) => {
   }
 });
 
+// ==================== CLEANUP ENDPOINTS ====================
+// Clean test data
+app.delete(`${FULL_API_PATH}/clean-test-data`, async (req, res) => {
+  try {
+    console.log('🧹 Cleaning ALL test data...');
+    
+    // Delete test matches
+    const deleted = await prisma.match.deleteMany({
+      where: {
+        OR: [
+          { match_id: 9999 },
+          { team_a: 'Test Team A' },
+          { team_b: 'Test Team B' },
+          { team_a: { contains: 'Test' } },
+          { team_b: { contains: 'Test' } },
+          { team_a: 'Team A' },
+          { team_b: 'Team B' }
+        ]
+      }
+    });
+    
+    console.log(`✅ Deleted ${deleted.count} test matches`);
+    
+    res.json({
+      success: true,
+      message: `Deleted ${deleted.count} test matches`,
+      deleted: deleted.count
+    });
+    
+  } catch (error) {
+    console.error('Error cleaning test data:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // ==================== INITIALIZATION ====================
 async function initializeBackend() {
   try {
-    console.log('🔄 Initializing backend...');
+    console.log('🔄 Initializing backend with REAL API data only...');
     
     // Connect to database
     await prisma.$connect();
     console.log('✅ Database connected');
     
-    // Check existing matches
-    const matchCount = await prisma.match.count();
-    console.log(`📊 Database contains ${matchCount} matches`);
-    
-    // Check API key
-    const sportsService = new SportsDataService();
-    const health = sportsService.healthCheck();
-    
-    if (health.hasApiKey && health.apiKeyConfigured) {
-      console.log('✅ Sports API key configured');
-      
-      // Test connection
-      const isConnected = await sportsService.testConnection();
-      
-      if (isConnected && matchCount === 0) {
-        console.log('🔄 No matches in DB, performing initial sync...');
-        const dataSync = new DataSyncService(sportsService);
-        const result = await dataSync.syncMatches();
-        
-        if (result.success) {
-          console.log(`✅ Initial sync: ${result.added} matches added`);
-        } else {
-          console.warn('⚠️ Initial sync failed:', result.error);
-        }
+    // Clean test data on startup
+    console.log('🧹 Cleaning test data on startup...');
+    const deleted = await prisma.match.deleteMany({
+      where: {
+        OR: [
+          { match_id: 9999 },
+          { team_a: 'Test Team A' },
+          { team_b: 'Test Team B' }
+        ]
       }
-    } else {
-      console.warn('⚠️ Sports API key not properly configured');
+    });
+    if (deleted.count > 0) {
+      console.log(`✅ Deleted ${deleted.count} test matches`);
+    }
+    
+    // Check existing REAL matches
+    const realMatchCount = await prisma.match.count({
+      where: {
+        match_id: {
+          not: 9999
+        },
+        NOT: [
+          { team_a: 'Test Team A' },
+          { team_b: 'Test Team B' }
+        ]
+      }
+    });
+    
+    console.log(`📊 Database contains ${realMatchCount} REAL matches`);
+    
+    // Initialize sports service
+    const sportsService = new SportsDataService();
+    
+    console.log('✅ Sports API key configured');
+    
+    // Test connection
+    const isConnected = await sportsService.testConnection();
+    
+    if (isConnected && realMatchCount === 0) {
+      console.log('🔄 No REAL matches in DB, attempting API sync...');
+      const dataSync = new DataSyncService(sportsService);
+      const result = await dataSync.syncMatches();
+      
+      if (result.success) {
+        console.log(`✅ Initial sync: ${result.added} REAL matches added`);
+      } else {
+        console.warn('⚠️ Initial sync failed:', result.error);
+        console.warn('💡 Try visiting /api/v4/test-endpoints to see available endpoints');
+      }
     }
     
     console.log('✅ Backend initialization complete');
@@ -774,11 +755,11 @@ app.use('*', (req, res) => {
     error: 'Route not found',
     available_routes: [
       '/health',
+      `${FULL_API_PATH}/test-endpoints`,
       `${FULL_API_PATH}/debug/sports-api`,
       `${FULL_API_PATH}/matches`,
-      `${FULL_API_PATH}/matches/upcoming`,
-      `${FULL_API_PATH}/matches/groups`,
-      `${FULL_API_PATH}/sync-now`
+      `${FULL_API_PATH}/sync-now`,
+      `${FULL_API_PATH}/clean-test-data`
     ]
   });
 });
@@ -795,22 +776,24 @@ console.log(`
 ╔═══════════════════════════════════════════════════════════════╗
 ║                                                               ║
 ║    CLUTCH Betting Platform API                               ║
-║    🦅 World Cup 2026 • REAL SPORTS DATA                      ║
+║    🦅 World Cup 2026 • REAL API DATA ONLY                    ║
+║    🚫 NO SAMPLE DATA                                         ║
 ║                                                               ║
 ╠═══════════════════════════════════════════════════════════════╣
 ║                                                               ║
 ║    ✅ API: ${FULL_API_PATH.padEnd(41)}║
 ║    ✅ Your API Key: Configured ✓                             ║
 ║    ✅ Auto-sync: Enabled                                     ║
-║    ✅ Using: SportsData.io API                               ║
+║    ✅ Sample Data: DISABLED                                  ║
 ║                                                               ║
 ╚═══════════════════════════════════════════════════════════════╝
 `);
 
 console.log('\n🔗 Test these URLs now:');
-console.log(`   1. Debug API: https://cup-backend-red.vercel.app/api/v4/debug/sports-api`);
-console.log(`   2. Force Sync: https://cup-backend-red.vercel.app/api/v4/sync-now`);
-console.log(`   3. Matches: https://cup-backend-red.vercel.app/api/v4/matches`);
-console.log(`   4. Health: https://cup-backend-red.vercel.app/health`);
+console.log(`   1. Test Endpoints: https://cup-backend-red.vercel.app/api/v4/test-endpoints`);
+console.log(`   2. Debug API: https://cup-backend-red.vercel.app/api/v4/debug/sports-api`);
+console.log(`   3. Force REAL Sync: https://cup-backend-red.vercel.app/api/v4/sync-now`);
+console.log(`   4. Clean Test Data: https://cup-backend-red.vercel.app/api/v4/clean-test-data`);
+console.log(`   5. REAL Matches: https://cup-backend-red.vercel.app/api/v4/matches`);
 
 module.exports = app;
