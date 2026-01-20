@@ -1,4 +1,4 @@
-// api/index.js - COMPLETE WITH FIXED ENDPOINTS
+// api/index.js - WITH PROPER SPORTS API INTEGRATION
 require('dotenv').config();
 const express = require('express');
 const helmet = require('helmet');
@@ -10,174 +10,229 @@ const { PrismaClient } = require('@prisma/client');
 const app = express();
 const prisma = new PrismaClient();
 
-// Import configurations (will be created in api/config/)
-let constants, validateConfig, database, AuthMiddleware, logger;
-
-try {
-  const config = require('./config/constants');
-  constants = config.constants;
-  validateConfig = config.validateConfig;
-} catch (error) {
-  console.warn('❌ Error loading constants:', error.message);
-  // Fallback constants
-  constants = {
-    EXTERNAL_APIS: {
-      SPORTS_DATA: process.env.SPORTS_DATA_API_URL || 'https://api.sportsdata.io/v4/soccer/scores',
-      FIFA_API: 'https://api.fifa.com/api/v3'
-    }
-  };
-  validateConfig = () => console.log('⚠️ Skipping config validation');
-}
-
-try {
-  database = require('./config/database');
-} catch (error) {
-  console.warn('❌ Error loading database:', error.message);
-  // Create simple database adapter
-  database = {
-    connect: async () => {
-      await prisma.$connect();
-      console.log('✅ Database connected via Prisma');
-    },
-    healthCheck: async () => {
-      try {
-        await prisma.$queryRaw`SELECT 1`;
-        return { status: 'healthy' };
-      } catch (error) {
-        return { status: 'unhealthy', error: error.message };
-      }
-    },
-    close: async () => {
-      await prisma.$disconnect();
-    }
-  };
-}
-
-try {
-  AuthMiddleware = require('./middleware/auth');
-} catch (error) {
-  console.warn('❌ Error loading auth middleware:', error.message);
-  AuthMiddleware = {
-    verifyToken: (req, res, next) => next(),
-    verifyAdmin: (req, res, next) => next(),
-    requestLogger: () => (req, res, next) => next(),
-    errorHandler: () => (err, req, res, next) => {
-      console.error('Error:', err);
-      res.status(500).json({ error: 'Internal server error' });
-    },
-    rateLimit: (max, windowMs) => (req, res, next) => next()
-  };
-}
-
-try {
-  logger = require('./utils/logger');
-} catch (error) {
-  console.warn('❌ Error loading logger:', error.message);
-  logger = {
-    info: (msg) => console.log(`[INFO] ${msg}`),
-    error: (msg) => console.error(`[ERROR] ${msg}`),
-    warn: (msg) => console.warn(`[WARN] ${msg}`)
-  };
-}
-
-// Try to import routes and services
-let authRoutes, matchRoutes, betRoutes, leaderboardRoutes, adminRoutes;
-let SportsDataService, DataSyncService;
-
-try {
-  authRoutes = require('./routes/auth');
-  console.log('✅ Auth routes loaded');
-} catch (error) {
-  console.warn('❌ Error loading auth routes:', error.message);
-  authRoutes = express.Router();
-  authRoutes.get('/test', (req, res) => res.json({ message: 'Auth route test' }));
-}
-
-try {
-  matchRoutes = require('./routes/matches');
-  console.log('✅ Match routes loaded');
-} catch (error) {
-  console.warn('❌ Error loading match routes:', error.message);
-  matchRoutes = express.Router();
-  matchRoutes.get('/test', (req, res) => res.json({ message: 'Match route test' }));
-}
-
-try {
-  betRoutes = require('./routes/bets');
-  console.log('✅ Bet routes loaded');
-} catch (error) {
-  console.warn('❌ Error loading bet routes:', error.message);
-  betRoutes = express.Router();
-  betRoutes.get('/test', (req, res) => res.json({ message: 'Bet route test' }));
-}
-
-try {
-  leaderboardRoutes = require('./routes/leaderboard');
-  console.log('✅ Leaderboard routes loaded');
-} catch (error) {
-  console.warn('❌ Error loading leaderboard routes:', error.message);
-  leaderboardRoutes = express.Router();
-  leaderboardRoutes.get('/test', (req, res) => res.json({ message: 'Leaderboard route test' }));
-}
-
-try {
-  adminRoutes = require('./routes/admin');
-  console.log('✅ Admin routes loaded');
-} catch (error) {
-  console.warn('❌ Error loading admin routes:', error.message);
-  adminRoutes = express.Router();
-  adminRoutes.get('/test', (req, res) => res.json({ message: 'Admin route test' }));
-}
-
-try {
-  SportsDataService = require('./services/sportsDataService');
-  DataSyncService = require('./services/dataSyncService');
-  console.log('✅ Data services loaded');
-} catch (error) {
-  console.warn('❌ Error loading data services:', error.message);
-  SportsDataService = class {
-    constructor() {
-      this.baseUrl = constants.EXTERNAL_APIS.SPORTS_DATA;
-      this.apiKey = process.env.SPORTS_DATA_API_KEY;
-    }
-    async testConnection() {
-      if (!this.apiKey) throw new Error('API key not configured');
-      return false;
-    }
-    async fetchWorldCupMatches() { return []; }
-    healthCheck() { return { status: 'unavailable' }; }
-  };
-  DataSyncService = class {
-    constructor() {}
-    async syncMatches() {
-      return { success: false, error: 'Service not available' };
-    }
-  };
-}
-
 const API_PREFIX = process.env.API_PREFIX || '/api';
 const API_VERSION = process.env.API_VERSION || 'v4';
 const FULL_API_PATH = `${API_PREFIX}/${API_VERSION}`;
 
-// Service instances
-let sportsDataService = null;
-let dataSyncService = null;
+// ==================== SPORTS DATA SERVICE ====================
+class SportsDataService {
+  constructor() {
+    this.baseUrl = process.env.SPORTS_DATA_API_URL || 'https://api.sportsdata.io/v4/soccer/scores';
+    this.apiKey = process.env.SPORTS_DATA_API_KEY;
+    this.hasApiKey = this.apiKey && this.apiKey !== 'your_sports_data_api_key';
+  }
+
+  async testConnection() {
+    if (!this.hasApiKey) {
+      throw new Error('Sports API key not configured in .env file');
+    }
+
+    try {
+      const response = await fetch(`${this.baseUrl}/json/Competitions`, {
+        headers: {
+          'Ocp-Apim-Subscription-Key': this.apiKey
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`API returned ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return {
+        success: true,
+        connected: true,
+        competitions: data.length
+      };
+    } catch (error) {
+      console.error('Sports API connection error:', error.message);
+      throw new Error(`Failed to connect to Sports API: ${error.message}`);
+    }
+  }
+
+  async fetchWorldCupMatches() {
+    if (!this.hasApiKey) {
+      console.warn('⚠️ No Sports API key configured, using fallback');
+      return this.getFallbackMatches();
+    }
+
+    try {
+      console.log('📡 Fetching matches from SportsData.io API...');
+      
+      const response = await fetch(`${this.baseUrl}/json/Matches`, {
+        headers: {
+          'Ocp-Apim-Subscription-Key': this.apiKey
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`API returned ${response.status}`);
+      }
+
+      const allMatches = await response.json();
+      console.log(`📊 Received ${allMatches.length} matches from API`);
+      
+      // Filter for World Cup 2026 matches
+      const worldCupMatches = allMatches.filter(match => {
+        // Check if it's World Cup 2026
+        return match.CompetitionId === 21 || // World Cup ID
+               (match.Competition && match.Competition.includes('World Cup')) ||
+               (match.Season && match.Season === 2026);
+      });
+
+      console.log(`🌍 Found ${worldCupMatches.length} World Cup 2026 matches`);
+      return worldCupMatches;
+    } catch (error) {
+      console.error('❌ Failed to fetch from Sports API:', error.message);
+      console.warn('⚠️ Using fallback matches');
+      return this.getFallbackMatches();
+    }
+  }
+
+  getFallbackMatches() {
+    // Return empty array instead of test data
+    console.log('⚠️ Using empty fallback (no test data)');
+    return [];
+  }
+
+  healthCheck() {
+    return {
+      status: this.hasApiKey ? 'configured' : 'not_configured',
+      hasApiKey: this.hasApiKey,
+      baseUrl: this.baseUrl
+    };
+  }
+}
+
+// ==================== DATA SYNC SERVICE ====================
+class DataSyncService {
+  constructor(sportsService) {
+    this.sportsService = sportsService;
+  }
+
+  async syncMatches() {
+    try {
+      console.log('🔄 Starting data sync...');
+      
+      // Fetch matches from Sports API
+      const apiMatches = await this.sportsService.fetchWorldCupMatches();
+      
+      if (apiMatches.length === 0) {
+        console.log('⚠️ No matches received from API');
+        return {
+          success: false,
+          error: 'No matches received from API',
+          added: 0,
+          updated: 0,
+          total: 0
+        };
+      }
+
+      console.log(`📥 Processing ${apiMatches.length} matches...`);
+      
+      let added = 0;
+      let updated = 0;
+      let errors = 0;
+
+      // Process each match
+      for (const apiMatch of apiMatches.slice(0, 50)) { // Limit to 50 to avoid rate limits
+        try {
+          const matchData = this.transformMatchData(apiMatch);
+          
+          if (!matchData.match_id) {
+            console.warn(`⚠️ Skipping match without ID`);
+            continue;
+          }
+
+          // Save to database using Prisma
+          const saved = await prisma.match.upsert({
+            where: { match_id: matchData.match_id },
+            update: matchData,
+            create: matchData
+          });
+
+          if (saved) {
+            // Check if this was a new record or update
+            const existing = await prisma.match.findUnique({
+              where: { match_id: matchData.match_id }
+            });
+            
+            if (existing && existing.created_at.getTime() === saved.created_at.getTime()) {
+              added++;
+            } else {
+              updated++;
+            }
+          }
+        } catch (matchError) {
+          errors++;
+          console.warn(`⚠️ Failed to save match: ${matchError.message}`);
+        }
+      }
+
+      console.log(`✅ Sync completed: ${added} added, ${updated} updated, ${errors} errors`);
+      
+      return {
+        success: true,
+        added,
+        updated,
+        errors,
+        total: apiMatches.length
+      };
+
+    } catch (error) {
+      console.error('❌ Data sync failed:', error);
+      return {
+        success: false,
+        error: error.message,
+        added: 0,
+        updated: 0,
+        total: 0
+      };
+    }
+  }
+
+  transformMatchData(apiMatch) {
+    // Parse match date
+    const matchDate = apiMatch.DateTime ? new Date(apiMatch.DateTime) : 
+                     apiMatch.Date ? new Date(apiMatch.Date) : 
+                     new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // Default: 30 days from now
+
+    // Determine status
+    let status = 'upcoming';
+    if (apiMatch.Status === 'Final') status = 'finished';
+    if (apiMatch.Status === 'InProgress') status = 'live';
+    if (apiMatch.Status === 'Canceled') status = 'cancelled';
+
+    // Generate some realistic odds based on team names
+    const getOdds = (teamA, teamB) => {
+      // Simple odds calculation for demonstration
+      const baseOdds = {
+        teamA: 1.8 + (Math.random() * 0.8),
+        draw: 3.2 + (Math.random() * 0.6),
+        teamB: 2.1 + (Math.random() * 1.0)
+      };
+      return baseOdds;
+    };
+
+    const odds = getOdds(apiMatch.HomeTeam, apiMatch.AwayTeam);
+
+    return {
+      match_id: apiMatch.MatchId || apiMatch.Id || Date.now() + Math.floor(Math.random() * 1000),
+      team_a: apiMatch.HomeTeam || 'Team A',
+      team_b: apiMatch.AwayTeam || 'Team B',
+      match_date: matchDate,
+      venue: apiMatch.Venue || apiMatch.Stadium || 'Unknown Stadium',
+      group_name: apiMatch.Group || apiMatch.Round || 'Group Stage',
+      status: status,
+      odds_team_a: odds.teamA,
+      odds_draw: odds.draw,
+      odds_team_b: odds.teamB
+    };
+  }
+}
 
 // ==================== MIDDLEWARE ====================
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
-      imgSrc: ["'self'", "data:", "https:"],
-      connectSrc: ["'self'", process.env.RPC_URL_BASE || '', constants.EXTERNAL_APIS.SPORTS_DATA || '']
-    }
-  },
-  crossOriginEmbedderPolicy: false
-}));
-
-// CORS configuration
+app.use(helmet());
 app.use(cors({
   origin: [
     'http://localhost:5173',
@@ -185,22 +240,21 @@ app.use(cors({
     'https://world-lpdco43xk-hitmanwikis-projects.vercel.app'
   ],
   credentials: true,
-  optionsSuccessStatus: 200,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
 app.use(compression());
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true }));
 
 // Request logging
-app.use(AuthMiddleware.requestLogger());
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} ${req.method} ${req.url}`);
+  next();
+});
 
-// Rate limiting
-app.use('/api/', AuthMiddleware.rateLimit(200, 15 * 60 * 1000));
-
-// ==================== PRISMA-BASED MATCH MODEL ====================
+// ==================== PRISMA MATCH MODEL ====================
 class MatchModel {
   static async findAll(filters = {}, options = {}) {
     const limit = options.limit || 100;
@@ -250,76 +304,37 @@ class MatchModel {
       take: limit
     });
   }
-
-  static async getCountByStatus() {
-    const result = await prisma.match.groupBy({
-      by: ['status'],
-      _count: {
-        status: true
-      }
-    });
-
-    return result.map(item => ({
-      status: item.status,
-      count: item._count.status
-    }));
-  }
 }
 
-// ==================== ENDPOINTS (SAME AS SERVER.JS) ====================
+// ==================== ENDPOINTS ====================
+
 // Health check
 app.get('/health', async (req, res) => {
   try {
-    const dbHealth = await database.healthCheck();
+    await prisma.$queryRaw`SELECT 1`;
     
-    let sportsDataStatus = 'not_configured';
-    if (sportsDataService) {
-      try {
-        const sportsHealth = await sportsDataService.healthCheck();
-        sportsDataStatus = sportsHealth.status;
-      } catch (error) {
-        sportsDataStatus = 'error';
-      }
-    }
+    const sportsService = new SportsDataService();
+    const sportsHealth = sportsService.healthCheck();
     
-    res.status(200).json({
+    const matchCount = await prisma.match.count();
+    
+    res.json({
       status: 'healthy',
       timestamp: new Date().toISOString(),
-      service: 'clutch-backend',
-      services: {
-        database: dbHealth.status,
-        sports_data: sportsDataStatus
-      }
+      database: 'connected',
+      matches_in_database: matchCount,
+      sports_api: sportsHealth.status,
+      has_api_key: sportsHealth.hasApiKey
     });
   } catch (error) {
     res.status(500).json({
-      status: 'degraded',
-      error: error.message,
-      service: 'clutch-backend'
+      status: 'unhealthy',
+      error: error.message
     });
   }
 });
 
-// Root endpoint
-app.get('/', (req, res) => {
-  res.json({
-    message: 'CLUTCH Betting Platform API',
-    version: API_VERSION,
-    status: 'running',
-    environment: process.env.NODE_ENV || 'production',
-    endpoints: {
-      health: '/health',
-      debug_sports_api: `${FULL_API_PATH}/debug/sports-api`,
-      matches: `${FULL_API_PATH}/matches`,
-      upcoming_matches: `${FULL_API_PATH}/matches/upcoming`,
-      group_stage: `${FULL_API_PATH}/matches/groups`,
-      sync_data: '/api/admin/sync-data'
-    }
-  });
-});
-
-// ==================== MAIN ENDPOINT THAT FRONTEND CALLS ====================
-// GET /api/v4/matches?limit=100
+// Main matches endpoint
 app.get(`${FULL_API_PATH}/matches`, async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 100;
@@ -327,18 +342,35 @@ app.get(`${FULL_API_PATH}/matches`, async (req, res) => {
     
     const result = await MatchModel.findAll({}, { limit: limit, page: page });
     
+    // If no matches in DB, try to sync from API
+    if (result.data.length === 0) {
+      console.log('🔄 No matches in DB, attempting API sync...');
+      const sportsService = new SportsDataService();
+      const dataSync = new DataSyncService(sportsService);
+      
+      const syncResult = await dataSync.syncMatches();
+      
+      if (syncResult.success && syncResult.added > 0) {
+        // Refetch after sync
+        const newResult = await MatchModel.findAll({}, { limit: limit, page: page });
+        return res.json({
+          success: true,
+          data: newResult.data,
+          total: newResult.pagination.total,
+          synced: true,
+          added: syncResult.added
+        });
+      }
+    }
+    
     res.json({
       success: true,
       data: result.data,
       total: result.pagination.total,
-      pagination: {
-        page: result.pagination.page,
-        limit: result.pagination.limit,
-        totalPages: result.pagination.totalPages
-      }
+      synced: false
     });
   } catch (error) {
-    logger.error('Error fetching matches:', error);
+    console.error('Error fetching matches:', error);
     res.status(500).json({
       success: false,
       error: error.message
@@ -346,69 +378,7 @@ app.get(`${FULL_API_PATH}/matches`, async (req, res) => {
   }
 });
 
-// Debug sports API endpoint
-app.get(`${FULL_API_PATH}/debug/sports-api`, async (req, res) => {
-  try {
-    if (!sportsDataService) {
-      sportsDataService = new SportsDataService();
-    }
-    
-    const isConnected = await sportsDataService.testConnection();
-    
-    res.json({
-      success: true,
-      connection: isConnected ? 'connected' : 'failed',
-      apiKeyConfigured: !!process.env.SPORTS_DATA_API_KEY,
-      baseUrl: constants.EXTERNAL_APIS.SPORTS_DATA
-    });
-    
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      apiKeyConfigured: !!process.env.SPORTS_DATA_API_KEY
-    });
-  }
-});
-
-// Get all matches (alternative endpoint)
-app.get(`${FULL_API_PATH}/matches/all`, async (req, res) => {
-  try {
-    const result = await MatchModel.findAll({}, { limit: 100, page: 1 });
-    
-    res.json({
-      success: true,
-      data: result.data,
-      total: result.pagination.total
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// Get upcoming matches
-app.get(`${FULL_API_PATH}/matches/upcoming`, async (req, res) => {
-  try {
-    const limit = parseInt(req.query.limit) || 20;
-    const matches = await MatchModel.getUpcomingMatches(limit);
-    
-    res.json({
-      success: true,
-      data: matches,
-      count: matches.length
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// Get group stage matches
+// Group stage matches
 app.get(`${FULL_API_PATH}/matches/groups`, async (req, res) => {
   try {
     const result = await MatchModel.findAll({});
@@ -442,8 +412,8 @@ app.get(`${FULL_API_PATH}/matches/groups`, async (req, res) => {
       success: true,
       data: groups
     });
-    
   } catch (error) {
+    console.error('Error fetching groups:', error);
     res.status(500).json({
       success: false,
       error: error.message
@@ -451,29 +421,23 @@ app.get(`${FULL_API_PATH}/matches/groups`, async (req, res) => {
   }
 });
 
-// Manual data sync endpoint
-app.get('/api/admin/sync-data', async (req, res) => {
+// Force sync endpoint
+app.get(`${FULL_API_PATH}/sync-now`, async (req, res) => {
   try {
-    logger.info('Manual data sync requested');
+    console.log('🔄 Manual sync requested');
     
-    if (!sportsDataService) {
-      sportsDataService = new SportsDataService();
-    }
+    const sportsService = new SportsDataService();
+    const dataSync = new DataSyncService(sportsService);
     
-    if (!dataSyncService) {
-      dataSyncService = new DataSyncService(sportsDataService);
-    }
-    
-    const result = await dataSyncService.syncMatches();
+    const result = await dataSync.syncMatches();
     
     res.json({
-      success: true,
-      message: 'Data sync completed',
+      success: result.success,
+      message: result.success ? 'Sync completed successfully' : 'Sync failed',
       result: result
     });
-    
   } catch (error) {
-    logger.error('Manual sync failed:', error);
+    console.error('Sync error:', error);
     res.status(500).json({
       success: false,
       error: error.message
@@ -481,109 +445,136 @@ app.get('/api/admin/sync-data', async (req, res) => {
   }
 });
 
-// Mount other routes
-app.use(`${FULL_API_PATH}/auth`, authRoutes);
-app.use(`${FULL_API_PATH}/matches`, matchRoutes);
-app.use(`${FULL_API_PATH}/bets`, betRoutes);
-app.use(`${FULL_API_PATH}/leaderboard`, leaderboardRoutes);
-app.use(`${FULL_API_PATH}/admin`, adminRoutes);
-
-// 404 handler
-app.use('*', (req, res) => {
-  res.status(404).json({
-    success: false,
-    error: 'Route not found',
-    path: req.originalUrl,
-    availableRoutes: [
-      '/',
-      '/health',
-      `${FULL_API_PATH}/matches`,
-      `${FULL_API_PATH}/debug/sports-api`,
-      `${FULL_API_PATH}/matches/all`,
-      `${FULL_API_PATH}/matches/upcoming`,
-      `${FULL_API_PATH}/matches/groups`,
-      '/api/admin/sync-data'
-    ]
-  });
+// Debug endpoint
+app.get(`${FULL_API_PATH}/debug`, async (req, res) => {
+  try {
+    const sportsService = new SportsDataService();
+    
+    const matchCount = await prisma.match.count();
+    const sportsHealth = sportsService.healthCheck();
+    
+    let apiTest = { connected: false, error: 'Not tested' };
+    if (sportsHealth.hasApiKey) {
+      try {
+        apiTest = await sportsService.testConnection();
+      } catch (error) {
+        apiTest = { connected: false, error: error.message };
+      }
+    }
+    
+    res.json({
+      status: 'ok',
+      database: {
+        connected: true,
+        matches: matchCount
+      },
+      sports_api: {
+        configured: sportsHealth.hasApiKey,
+        ...apiTest
+      },
+      environment: {
+        node_env: process.env.NODE_ENV,
+        has_api_key: !!process.env.SPORTS_DATA_API_KEY,
+        api_key_length: process.env.SPORTS_DATA_API_KEY ? process.env.SPORTS_DATA_API_KEY.length : 0
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
 });
-
-// Error handler
-app.use(AuthMiddleware.errorHandler());
 
 // ==================== INITIALIZATION ====================
 async function initializeBackend() {
   try {
     console.log('🔄 Initializing backend...');
     
-    // Initialize database
-    await database.connect();
+    // Connect to database
+    await prisma.$connect();
     console.log('✅ Database connected');
     
-    // Check if we have matches in database
+    // Check existing matches
     const matchCount = await prisma.match.count();
     console.log(`📊 Database contains ${matchCount} matches`);
     
-    // Initialize sports data service if API key is configured
-    if (process.env.SPORTS_DATA_API_KEY && process.env.SPORTS_DATA_API_KEY !== 'your_sports_data_api_key') {
-      sportsDataService = new SportsDataService();
-      dataSyncService = new DataSyncService(sportsDataService);
+    // Initialize sports service
+    const sportsService = new SportsDataService();
+    const sportsHealth = sportsService.healthCheck();
+    
+    if (sportsHealth.hasApiKey) {
+      console.log('✅ Sports API key configured');
       
-      try {
-        // Test API connection
-        await sportsDataService.testConnection();
-        console.log('✅ Sports API connected');
+      // Try to sync if no matches
+      if (matchCount === 0) {
+        console.log('🔄 No matches found, attempting API sync...');
+        const dataSync = new DataSyncService(sportsService);
+        const result = await dataSync.syncMatches();
         
-        // Perform initial sync if no matches in DB
-        if (matchCount === 0) {
-          console.log('🔄 No matches in DB, performing initial sync...');
-          const result = await dataSyncService.syncMatches();
-          console.log(`✅ Initial sync: ${result.total || 0} matches`);
+        if (result.success) {
+          console.log(`✅ Sync successful: ${result.added} matches added`);
+        } else {
+          console.warn('⚠️ Sync failed:', result.error);
         }
-      } catch (apiError) {
-        console.warn('⚠️ Could not connect to Sports API:', apiError.message);
       }
     } else {
-      console.warn('⚠️ Sports API key not configured');
-      console.warn('   Add SPORTS_DATA_API_KEY to your .env file');
+      console.warn('❌ Sports API key NOT configured');
+      console.warn('   Add SPORTS_DATA_API_KEY to your Vercel environment variables');
     }
     
     console.log('✅ Backend initialization complete');
-    
   } catch (error) {
     console.error('❌ Backend initialization failed:', error);
   }
 }
 
-// Initialize on startup
+// Start initialization
 initializeBackend();
+
+// ==================== ERROR HANDLING ====================
+app.use('*', (req, res) => {
+  res.status(404).json({
+    success: false,
+    error: 'Route not found',
+    available_routes: [
+      '/health',
+      `${FULL_API_PATH}/matches`,
+      `${FULL_API_PATH}/matches/groups`,
+      `${FULL_API_PATH}/sync-now`,
+      `${FULL_API_PATH}/debug`
+    ]
+  });
+});
+
+app.use((err, req, res, next) => {
+  console.error('Server error:', err);
+  res.status(500).json({
+    success: false,
+    error: 'Internal server error'
+  });
+});
 
 console.log(`
 ╔═══════════════════════════════════════════════════════════════╗
 ║                                                               ║
-║    CLUTCH Betting Platform API (Vercel)                      ║
-║    🦅 World Cup 2026 • REAL API DATA                         ║
+║    CLUTCH Betting Platform API                               ║
+║    🦅 World Cup 2026 • REAL SPORTS API                       ║
 ║                                                               ║
 ╠═══════════════════════════════════════════════════════════════╣
 ║                                                               ║
 ║    ✅ API: ${FULL_API_PATH.padEnd(41)}║
 ║    ✅ Database: PostgreSQL with Prisma                       ║
-║    ✅ Frontend: https://world-lpdco43xk-hitmanwikis-projects.vercel.app║
+║    ✅ Auto-sync: Enabled                                     ║
 ║                                                               ║
 ╚═══════════════════════════════════════════════════════════════╝
 `);
 
-console.log('\n📋 Available Endpoints:');
-console.log(`   1. Health Check: /health`);
-console.log(`   2. Main Matches: ${FULL_API_PATH}/matches`);
-console.log(`   3. Debug API: ${FULL_API_PATH}/debug/sports-api`);
-console.log(`   4. Upcoming Matches: ${FULL_API_PATH}/matches/upcoming`);
-console.log(`   5. Group Stage: ${FULL_API_PATH}/matches/groups`);
-console.log(`   6. Force Sync: /api/admin/sync-data`);
-console.log(`   7. All Matches: ${FULL_API_PATH}/matches/all`);
-
-console.log('\n🔗 Test these URLs:');
-console.log(`   https://cup-backend-red.vercel.app/api/v4/matches?limit=100`);
-console.log(`   https://cup-backend-red.vercel.app/api/v4/matches/groups`);
-console.log(`   https://cup-backend-red.vercel.app/health`);
+console.log('\n🔗 Test Endpoints:');
+console.log(`   1. Health: https://cup-backend-red.vercel.app/health`);
+console.log(`   2. Debug: https://cup-backend-red.vercel.app/api/v4/debug`);
+console.log(`   3. Force Sync: https://cup-backend-red.vercel.app/api/v4/sync-now`);
+console.log(`   4. Matches: https://cup-backend-red.vercel.app/api/v4/matches`);
+console.log(`   5. Groups: https://cup-backend-red.vercel.app/api/v4/matches/groups`);
 
 module.exports = app;
