@@ -1,9 +1,9 @@
 // src/controllers/matchController.js
-const Match = require('../models/Match');
-const Bet = require('../models/Bet');
-const web3Service = require('../services/web3Service');
+const Match = require('../src/models/Match');
+const Bet = require('../src/models/Bet');
+const web3Service = require('../src/services/web3Service');
 const { constants } = require('../config/constants');
-const logger = require('../utils/logger');
+const logger = require('../src/utils/logger');
 
 class MatchController {
   // Get all matches with filters

@@ -7,22 +7,22 @@ const cors = require('cors');
 const path = require('path');
 
 // Import configurations
-const { constants, validateConfig } = require('./src/config/constants');
-const database = require('./src/config/database');
-const web3Service = require('./src/services/web3Service');
-const AuthMiddleware = require('./src/middleware/auth');
-const logger = require('./src/utils/logger');
+const { constants, validateConfig } = require('./api/src/config/constants');
+const database = require('./api/src/config/database');
+const web3Service = require('./api/src/services/web3Service');
+const AuthMiddleware = require('./api/src/middleware/auth');
+const logger = require('./api/src/utils/logger');
 
 // Import routes
-const authRoutes = require('./src/routes/auth');
-const matchRoutes = require('./src/routes/matches');
-const betRoutes = require('./src/routes/bets');
-const leaderboardRoutes = require('./src/routes/leaderboard');
-const adminRoutes = require('./src/routes/admin');
+const authRoutes = require('./api/src/routes/auth');
+const matchRoutes = require('./api/src/routes/matches');
+const betRoutes = require('./api/src/routes/bets');
+const leaderboardRoutes = require('./api/src/routes/leaderboard');
+const adminRoutes = require('./api/src/routes/admin');
 
 // Import new services for external data
-const DataSyncService = require('./src/services/dataSyncService');
-const SportsDataService = require('./src/services/sportsDataService');
+const DataSyncService = require('./api/src/services/dataSyncService');
+const SportsDataService = require('./api/src/services/sportsDataService');
 
 class Server {
   constructor() {
@@ -182,7 +182,7 @@ this.app.use(cors(corsOptions));
 // In server.js, add:
 this.app.get('/api/v4/matches/all', async (req, res) => {
   try {
-    const Match = require('./src/models/Match');
+    const Match = require('./api/src/models/Match');
     const result = await Match.findAll({}, { limit: 100, page: 1 });
     
     res.json({
@@ -250,7 +250,7 @@ this.app.get('/api/v4/matches/all', async (req, res) => {
     // Debug endpoint for matches data
 this.app.get('/api/v4/debug/matches', async (req, res) => {
   try {
-    const Match = require('./src/models/Match');
+    const Match = require('./api/src/models/Match');
     
     // Get all matches
     const allMatches = await Match.findAll();
@@ -279,7 +279,7 @@ this.app.get('/api/v4/debug/matches', async (req, res) => {
 // Add this in server.js inside initializeMiddleware method:
 this.app.get('/api/v4/debug/db-matches', async (req, res) => {
   try {
-    const db = require('./src/config/database');
+    const db = require('./api/src/config/database');
     
     // Check matches table directly
     const matches = await db.query('SELECT * FROM matches LIMIT 10');
@@ -301,7 +301,7 @@ this.app.get('/api/v4/debug/db-matches', async (req, res) => {
 // Debug endpoints for result detection
 this.app.get('/api/v4/admin/check-finished-matches', async (req, res) => {
   try {
-    const ResultDetectorService = require('./src/services/ResultDetectorService');
+    const ResultDetectorService = require('./api/src/services/ResultDetectorService');
     const detector = new ResultDetectorService();
     
     const result = await detector.checkFinishedMatches();
@@ -331,7 +331,7 @@ this.app.post('/api/v4/admin/finish-match/:matchId', async (req, res) => {
       });
     }
     
-    const ResultDetectorService = require('./src/services/ResultDetectorService');
+    const ResultDetectorService = require('./api/src/services/ResultDetectorService');
     const detector = new ResultDetectorService();
     
     const result = await detector.manuallyFinishMatch(parseInt(matchId), parseInt(outcome));
@@ -389,7 +389,7 @@ this.app.get('/api/v4/debug/auth-test', AuthMiddleware.verifyToken, (req, res) =
       logger.info('Database connection established');
       
       // Check if we have real data or just sample data
-      const Match = require('./src/models/Match');
+      const Match = require('./api/src/models/Match');
       const matchCount = await Match.getCountByStatus();
       const totalMatches = matchCount.reduce((a, b) => a + b.count, 0);
       logger.info(`Database contains ${totalMatches} matches`);
@@ -627,7 +627,7 @@ this.app.get('/api/v4/debug/auth-test', AuthMiddleware.verifyToken, (req, res) =
     cron.schedule('0 * * * *', async () => {
       try {
         logger.info('Starting scheduled leaderboard update...');
-        const Leaderboard = require('./src/models/Leaderboard');
+        const Leaderboard = require('./api/src/models/Leaderboard');
         await Leaderboard.updateAllRanks();
         logger.info('Scheduled leaderboard update completed');
       } catch (error) {
@@ -683,7 +683,7 @@ this.app.get('/api/v4/debug/auth-test', AuthMiddleware.verifyToken, (req, res) =
 
   async cleanupOldData() {
     try {
-      const db = require('./src/config/database');
+      const db = require('./api/src/config/database');
       
       // Delete logs older than 30 days
       await db.query(`

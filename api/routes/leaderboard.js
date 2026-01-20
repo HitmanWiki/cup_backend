@@ -1,7 +1,7 @@
 // src/routes/leaderboard.js
 const express = require('express');
 const router = express.Router();
-const LeaderboardController = require('../controllers/leaderboardController');
+const LeaderboardController = require('../../api/controllers/leaderboardController');
 const AuthMiddleware = require('../middleware/auth');
 
 // Public routes

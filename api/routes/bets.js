@@ -1,7 +1,7 @@
 // src/routes/bets.js
 const express = require('express');
 const router = express.Router();
-const BetController = require('../controllers/betController');
+const BetController = require('../../api/controllers/betController');
 const AuthMiddleware = require('../middleware/auth');
 
 // Public routes

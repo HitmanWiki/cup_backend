@@ -1,6 +1,6 @@
 // src/services/ResultDetectorService.js
 const Match = require('../models/Match');
-const web3Service = require('../services/web3Service');
+const web3Service = require('./web3Service');
 const SportsDataService = require('/SportsDataService');
 const { constants } = require('../config/constants');
 const logger = require('../utils/logger');

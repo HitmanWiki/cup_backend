@@ -1,7 +1,7 @@
 // src/routes/auth.js
 const express = require('express');
 const router = express.Router();
-const AuthController = require('../controllers/authController');
+const AuthController = require('../../api/controllers/authController');
 const AuthMiddleware = require('../middleware/auth');
 
 // Wallet login/signup - use walletLogin method

@@ -1,7 +1,7 @@
 // src/routes/matches.js
 const express = require('express');
 const router = express.Router();
-const MatchController = require('../controllers/matchController');
+const MatchController = require('../../api/controllers/matchController');
 const AuthMiddleware = require('../middleware/auth');
 
 // Public routes

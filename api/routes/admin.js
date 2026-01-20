@@ -1,7 +1,7 @@
 // src/routes/admin.js
 const express = require('express');
 const router = express.Router();
-const AdminController = require('../controllers/adminController');
+const AdminController = require('../../api/controllers/adminController');
 const AuthMiddleware = require('../middleware/auth');
 
 // All admin routes require admin authentication
