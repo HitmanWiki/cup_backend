@@ -1,4 +1,5 @@
-const axios = require('axios');
+// api/services/sportsDataService.js - FIXED VERSION
+require('dotenv').config();
 
 class SportsDataService {
   constructor() {
@@ -14,52 +15,71 @@ class SportsDataService {
       season2026: this.season2026
     });
     
-    if (!this.apiKey) {
-      throw new Error('SPORTS_DATA_API_KEY is not configured in .env file');
+    if (!this.apiKey || this.apiKey === 'your_sports_data_api_key') {
+      console.error('❌ SPORTS_DATA_API_KEY is not configured in .env file');
+      console.error('   Add your real API key to Vercel environment variables');
+      throw new Error('Sports API key not configured');
     }
   }
 
- async testConnection() {
-  try {
-    console.log('🔗 Testing SportsData.io API connection...');
-    
-    // Use a shorter timeout
-    const response = await axios.get(`${this.baseUrl}/json/Areas`, {
-      params: { key: this.apiKey },
-      timeout: 3000 // 3 seconds instead of 5
-    });
-    
-    console.log('✅ API Connection successful');
-    console.log(`📊 Found ${response.data.length} areas/regions`);
-    
-    return true;
-    
-  } catch (error) {
-    // Don't throw, just return false
-    if (error.code === 'ECONNABORTED') {
-      console.log('⏱️ API connection timeout');
-    } else if (error.response) {
-      console.log(`❌ API error: ${error.response.status}`);
-    } else {
-      console.log(`❌ Connection failed: ${error.message}`);
+  async testConnection() {
+    try {
+      console.log('🔗 Testing SportsData.io API connection...');
+      
+      // Use correct header format for SportsData.io
+      const response = await fetch(`${this.baseUrl}/json/Competitions`, {
+        headers: {
+          'Ocp-Apim-Subscription-Key': this.apiKey
+        },
+        timeout: 5000
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API returned ${response.status}: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      console.log('✅ API Connection successful');
+      console.log(`📊 Found ${data.length} competitions`);
+      
+      // Check if World Cup is available
+      const worldCup = data.find(c => c.CompetitionId === 21 || c.Name.includes('World Cup'));
+      console.log(`🏆 World Cup available: ${worldCup ? 'YES' : 'NO'}`);
+      
+      return {
+        success: true,
+        connected: true,
+        competitions: data.length,
+        worldCupAvailable: !!worldCup
+      };
+      
+    } catch (error) {
+      console.error('❌ API connection failed:', error.message);
+      return {
+        success: false,
+        connected: false,
+        error: error.message
+      };
     }
-    
-    return false; // Return false instead of throwing
   }
-}
 
-  // 2. FETCH COMPETITIONS (Works with your API key)
   async fetchCompetitions() {
     try {
       console.log('📋 Fetching competitions...');
       
-      const response = await axios.get(`${this.baseUrl}/json/Competitions`, {
-        params: { key: this.apiKey },
-        timeout: 5000
+      const response = await fetch(`${this.baseUrl}/json/Competitions`, {
+        headers: {
+          'Ocp-Apim-Subscription-Key': this.apiKey
+        }
       });
       
-      console.log(`✅ Found ${response.data.length} competitions`);
-      return response.data || [];
+      if (!response.ok) {
+        throw new Error(`API returned ${response.status}`);
+      }
+      
+      const data = await response.json();
+      console.log(`✅ Found ${data.length} competitions`);
+      return data || [];
       
     } catch (error) {
       console.error('❌ Error fetching competitions:', error.message);
@@ -67,190 +87,153 @@ class SportsDataService {
     }
   }
 
-  // 3. GENERATE WORLD CUP 2026 MATCHES (Fallback)
   async fetchWorldCupMatches() {
     try {
-      console.log('🌍 Fetching World Cup matches...');
+      console.log('🌍 Fetching World Cup matches from REAL API...');
       
-      // First, verify we can access competitions
+      // First, test the connection
+      const connection = await this.testConnection();
+      if (!connection.success) {
+        throw new Error('API connection failed');
+      }
+      
+      // Try to fetch current World Cup matches (2022)
+      console.log('📡 Fetching current World Cup matches...');
+      const response = await fetch(`${this.baseUrl}/json/Scores/WorldCup`, {
+        headers: {
+          'Ocp-Apim-Subscription-Key': this.apiKey
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API returned ${response.status}`);
+      }
+      
+      const matches = await response.json();
+      console.log(`✅ Found ${matches.length} World Cup matches from API`);
+      
+      if (matches.length > 0) {
+        // Transform and return real matches
+        const transformed = matches.map(match => this.transformApiMatch(match));
+        console.log(`🔄 Transformed ${transformed.length} matches`);
+        return transformed;
+      }
+      
+      // If no current matches, try competitions endpoint
+      console.log('🔄 Trying competitions endpoint...');
       const competitions = await this.fetchCompetitions();
       const worldCup = competitions.find(c => c.CompetitionId === 21);
       
-      if (!worldCup) {
-        console.log('⚠️ World Cup not found in API data, using generated schedule');
-        return this.generateWorldCup2026Schedule();
-      }
-      
-      console.log(`🏆 World Cup found: ${worldCup.Name}`);
-      console.log(`📅 Available seasons: ${worldCup.Seasons?.map(s => s.Season).join(', ') || 'None'}`);
-      
-      // Check if 2026 season exists
-      const season2026 = worldCup.Seasons?.find(s => s.Season === 2026);
-      if (!season2026) {
-        console.log('⚠️ World Cup 2026 season not available yet, using generated schedule');
-        return this.generateWorldCup2026Schedule();
-      }
-      
-      console.log(`✅ World Cup 2026 season confirmed (ID: ${season2026.SeasonId})`);
-      
-      // Try to get matches (though your API key might not have access)
-      try {
-        // This might fail, but we try anyway
-        const response = await axios.get(`${this.baseUrl}/json/Schedule/WorldCup/2026`, {
-          params: { key: this.apiKey },
-          timeout: 3000
-        });
+      if (worldCup) {
+        console.log(`🏆 Found World Cup: ${worldCup.Name}`);
         
-        if (response.data && response.data.length > 0) {
-          console.log(`✅ Found ${response.data.length} real World Cup 2026 matches`);
-          return response.data.map(game => this.transformGameData(game));
+        // Try to fetch World Cup games
+        try {
+          const gamesResponse = await fetch(`${this.baseUrl}/json/Games/WorldCup`, {
+            headers: {
+              'Ocp-Apim-Subscription-Key': this.apiKey
+            }
+          });
+          
+          if (gamesResponse.ok) {
+            const games = await gamesResponse.json();
+            if (games.length > 0) {
+              const transformed = games.map(game => this.transformApiMatch(game));
+              console.log(`✅ Found ${transformed.length} games from Games endpoint`);
+              return transformed;
+            }
+          }
+        } catch (gamesError) {
+          console.log('⚠️ Games endpoint not available:', gamesError.message);
         }
-      } catch (matchError) {
-        console.log('📋 Match data not available, using generated schedule');
       }
       
-      // Fallback to generated schedule
-      return this.generateWorldCup2026Schedule();
+      // Fallback: Try to fetch all matches and filter
+      console.log('🔄 Fetching all matches to filter...');
+      const allMatchesResponse = await fetch(`${this.baseUrl}/json/Matches`, {
+        headers: {
+          'Ocp-Apim-Subscription-Key': this.apiKey
+        }
+      });
+      
+      if (allMatchesResponse.ok) {
+        const allMatches = await allMatchesResponse.json();
+        const worldCupMatches = allMatches.filter(match => 
+          match.CompetitionId === 21 || 
+          (match.Competition && match.Competition.includes('World Cup'))
+        );
+        
+        if (worldCupMatches.length > 0) {
+          const transformed = worldCupMatches.map(match => this.transformApiMatch(match));
+          console.log(`✅ Filtered ${transformed.length} World Cup matches`);
+          return transformed;
+        }
+      }
+      
+      console.log('⚠️ No World Cup matches found in API');
+      console.log('💡 The API may not have 2026 data yet');
+      
+      // Return empty array instead of fake data
+      return [];
       
     } catch (error) {
-      console.error('❌ Error in fetchWorldCupMatches:', error.message);
-      return this.generateWorldCup2026Schedule(); // Always return generated schedule as fallback
+      console.error('❌ Error fetching World Cup matches:', error.message);
+      console.error('💡 Check your API key and subscription level');
+      
+      // Return empty array instead of fake data
+      return [];
     }
   }
 
-  // 4. GENERATE REALISTIC WORLD CUP 2026 SCHEDULE
-  generateWorldCup2026Schedule() {
-    console.log('🎯 Generating realistic World Cup 2026 schedule...');
+  transformApiMatch(apiMatch) {
+    // Parse match date
+    const matchDate = apiMatch.DateTime ? new Date(apiMatch.DateTime) : 
+                     apiMatch.Date ? new Date(apiMatch.Date) : 
+                     new Date(Date.now() + Math.random() * 30 * 24 * 60 * 60 * 1000); // Random future date
     
-    const groups = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
-    const groupTeams = {
-      'A': ['USA', 'Canada', 'Mexico', 'Costa Rica'],
-      'B': ['Brazil', 'Argentina', 'Uruguay', 'Chile'],
-      'C': ['England', 'France', 'Germany', 'Netherlands'],
-      'D': ['Spain', 'Portugal', 'Italy', 'Belgium'],
-      'E': ['Japan', 'South Korea', 'Australia', 'Saudi Arabia'],
-      'F': ['Morocco', 'Egypt', 'Senegal', 'Nigeria'],
-      'G': ['Switzerland', 'Denmark', 'Sweden', 'Norway'],
-      'H': ['Iran', 'South Africa', 'New Zealand', 'Qatar']
+    // Determine status
+    let status = 'upcoming';
+    if (apiMatch.Status === 'Final') status = 'finished';
+    if (apiMatch.Status === 'InProgress') status = 'live';
+    if (apiMatch.Status === 'Canceled') status = 'cancelled';
+    
+    // Calculate reasonable odds
+    const getOdds = () => {
+      // Simple odds calculation
+      return {
+        teamA: parseFloat((1.8 + Math.random() * 0.6).toFixed(2)),
+        draw: parseFloat((3.2 + Math.random() * 0.5).toFixed(2)),
+        teamB: parseFloat((2.1 + Math.random() * 0.8).toFixed(2))
+      };
     };
     
-    const venues = [
-      'MetLife Stadium, New Jersey',
-      'SoFi Stadium, California',
-      'AT&T Stadium, Texas',
-      'Mercedes-Benz Stadium, Georgia',
-      'Hard Rock Stadium, Florida',
-      'Arrowhead Stadium, Missouri',
-      'Lumen Field, Washington',
-      'BC Place, Vancouver'
-    ];
+    const odds = getOdds();
     
-    const matches = [];
-    let matchId = 1000;
-    const startDate = new Date('2026-06-11');
-    
-    // Generate group stage matches
-    groups.forEach(group => {
-      const teams = groupTeams[group];
-      
-      // Each team plays each other once
-      for (let i = 0; i < teams.length; i++) {
-        for (let j = i + 1; j < teams.length; j++) {
-          const matchDate = new Date(startDate);
-          matchDate.setDate(startDate.getDate() + matches.length % 10);
-          
-          matches.push({
-            match_id: matchId++,
-            external_id: `WC2026-${group}-${matchId}`,
-            team_a: teams[i],
-            team_b: teams[j],
-            match_date: matchDate.toISOString(),
-            venue: venues[matches.length % venues.length],
-            group_name: `Group ${group}`,
-            status: 'upcoming',
-            competition_id: 21,
-            season: 2026,
-            odds_team_a: (1.8 + Math.random() * 0.6).toFixed(2),
-            odds_draw: (3.0 + Math.random() * 0.8).toFixed(2),
-            odds_team_b: (2.5 + Math.random() * 1.0).toFixed(2),
-            api_data: {
-              group: group,
-              round: 'Group Stage',
-              matchday: Math.floor(matches.length / 6) + 1
-            }
-          });
-        }
-      }
-    });
-    
-    // Add knockout stage matches
-    const knockoutRounds = [
-      { name: 'Round of 16', count: 8 },
-      { name: 'Quarter-finals', count: 4 },
-      { name: 'Semi-finals', count: 2 },
-      { name: 'Third Place', count: 1 },
-      { name: 'Final', count: 1 }
-    ];
-    
-    let knockoutDate = new Date('2026-07-01');
-    
-    knockoutRounds.forEach(round => {
-      for (let i = 0; i < round.count; i++) {
-        matches.push({
-          match_id: matchId++,
-          external_id: `WC2026-${round.name.replace(' ', '')}-${i+1}`,
-          team_a: `Winner ${String.fromCharCode(65 + i)}`,
-          team_b: `Runner-up ${String.fromCharCode(65 + (i + 1) % 8)}`,
-          match_date: new Date(knockoutDate).toISOString(),
-          venue: venues[i % venues.length],
-          group_name: round.name,
-          status: 'upcoming',
-          competition_id: 21,
-          season: 2026,
-          odds_team_a: (1.5 + Math.random() * 0.5).toFixed(2),
-          odds_draw: (3.5 + Math.random() * 0.5).toFixed(2),
-          odds_team_b: (2.0 + Math.random() * 0.8).toFixed(2),
-          api_data: {
-            round: round.name,
-            stage: 'Knockout'
-          }
-        });
-        knockoutDate.setDate(knockoutDate.getDate() + 1);
-      }
-      knockoutDate.setDate(knockoutDate.getDate() + 2); // Gap between rounds
-    });
-    
-    console.log(`✅ Generated ${matches.length} World Cup 2026 matches`);
-    return matches;
-  }
-
-  // 5. TRANSFORM GAME DATA HELPER
-  transformGameData(game) {
     return {
-      match_id: game.GameId || this.generateUniqueId(),
-      external_id: game.GameId || 0,
-      team_a: game.HomeTeam || game.HomeTeamName || 'TBD',
-      team_b: game.AwayTeam || game.AwayTeamName || 'TBD',
-      match_date: game.DateTime || new Date().toISOString(),
-      venue: game.Stadium || game.Venue || 'World Cup Stadium',
-      group_name: game.Round || game.Stage || 'Group Stage',
-      status: this.mapStatus(game.Status || 'Scheduled'),
-      competition_id: 21,
-      season: game.Season || 2026,
-      odds_team_a: this.calculateDefaultOdds(1.8, 2.4),
-      odds_draw: this.calculateDefaultOdds(3.0, 3.8),
-      odds_team_b: this.calculateDefaultOdds(2.5, 4.0),
+      match_id: apiMatch.MatchId || apiMatch.GameId || apiMatch.Id || Date.now(),
+      external_id: apiMatch.MatchId || apiMatch.GameId || 0,
+      team_a: apiMatch.HomeTeam || apiMatch.HomeTeamName || 'Team A',
+      team_b: apiMatch.AwayTeam || apiMatch.AwayTeamName || 'Team B',
+      match_date: matchDate,
+      venue: apiMatch.Venue || apiMatch.Stadium || 'Unknown Stadium',
+      group_name: apiMatch.Group || apiMatch.Round || 'Group Stage',
+      status: status,
+      competition_id: apiMatch.CompetitionId || 21,
+      season: apiMatch.Season || 2026,
+      odds_team_a: odds.teamA,
+      odds_draw: odds.draw,
+      odds_team_b: odds.teamB,
       api_data: {
-        home_score: game.HomeTeamScore,
-        away_score: game.AwayTeamScore,
-        status: game.Status,
-        round: game.Round,
-        group: game.Group
+        home_score: apiMatch.HomeTeamScore,
+        away_score: apiMatch.AwayTeamScore,
+        status: apiMatch.Status,
+        round: apiMatch.Round,
+        group: apiMatch.Group,
+        competition: apiMatch.Competition
       }
     };
   }
 
-  // 6. FETCH UPCOMING MATCHES
   async fetchUpcomingMatches(days = 7) {
     try {
       const allMatches = await this.fetchWorldCupMatches();
@@ -265,7 +248,7 @@ class SportsDataService {
         })
         .sort((a, b) => new Date(a.match_date) - new Date(b.match_date));
       
-      console.log(`✅ Found ${upcoming.length} upcoming matches in next ${days} days`);
+      console.log(`📅 Found ${upcoming.length} upcoming matches in next ${days} days`);
       return upcoming;
       
     } catch (error) {
@@ -274,97 +257,24 @@ class SportsDataService {
     }
   }
 
-  // 7. FETCH GROUP STAGE MATCHES
-  async fetchGroupStageMatches() {
-    try {
-      const allMatches = await this.fetchWorldCupMatches();
-      const groups = {};
-      
-      allMatches.forEach(match => {
-        if (match.group_name && match.group_name.includes('Group')) {
-          const group = match.group_name;
-          if (!groups[group]) {
-            groups[group] = [];
-          }
-          
-          groups[group].push({
-            id: match.match_id,
-            external_id: match.external_id,
-            date: match.match_date,
-            home_team: match.team_a,
-            away_team: match.team_b,
-            venue: match.venue,
-            status: match.status,
-            odds_team_a: match.odds_team_a,
-            odds_draw: match.odds_draw,
-            odds_team_b: match.odds_team_b,
-            group: group
-          });
-        }
-      });
-      
-      // Sort by date in each group
-      Object.keys(groups).forEach(group => {
-        groups[group].sort((a, b) => new Date(a.date) - new Date(b.date));
-      });
-      
-      console.log(`📊 Found group stage matches in ${Object.keys(groups).length} groups`);
-      return groups;
-      
-    } catch (error) {
-      console.error('❌ Error fetching group stage:', error.message);
-      return {};
-    }
-  }
-
-  // 8. HELPER METHODS
-  generateUniqueId() {
-    return Date.now() + Math.floor(Math.random() * 1000);
-  }
-
-  calculateDefaultOdds(min, max) {
-    return parseFloat((Math.random() * (max - min) + min).toFixed(2));
-  }
-
-  mapStatus(apiStatus) {
-    const statusMap = {
-      'Scheduled': 'upcoming',
-      'InProgress': 'live',
-      'Final': 'finished',
-      'F/OT': 'finished',
-      'F/SO': 'finished',
-      'Postponed': 'cancelled',
-      'Cancelled': 'cancelled',
-      'Suspended': 'cancelled',
-      'Abandoned': 'cancelled'
-    };
-    return statusMap[apiStatus] || 'upcoming';
-  }
-
-  // 9. HEALTH CHECK (Required by DataSyncService)
   async healthCheck() {
     try {
-      const competitions = await this.fetchCompetitions();
-      const worldCup = competitions.find(c => c.CompetitionId === 21);
-      
-      // Generate sample matches to check
-      const sampleMatches = this.generateWorldCup2026Schedule();
+      const connection = await this.testConnection();
       
       return {
-        status: 'healthy',
-        competitions: competitions.length,
-        worldCupAvailable: !!worldCup,
-        canGenerateSchedule: true,
-        generatedMatches: sampleMatches.length
+        status: connection.success ? 'healthy' : 'unhealthy',
+        connected: connection.success,
+        error: connection.error,
+        hasApiKey: !!this.apiKey,
+        baseUrl: this.baseUrl
       };
     } catch (error) {
       return {
         status: 'unhealthy',
+        connected: false,
         error: error.message,
-        competitions: 0,
-        worldCupAvailable: false,
-        canGenerateSchedule: false,
-        generatedMatches: 0
+        hasApiKey: !!this.apiKey,
+        baseUrl: this.baseUrl
       };
     }
   }

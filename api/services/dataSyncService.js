@@ -1,5 +1,4 @@
-// src/services/dataSyncService.js
-const Match = require('../models/Match');
+// api/services/dataSyncService.js - UPDATED
 const logger = require('../utils/logger');
 
 class DataSyncService {
@@ -19,61 +18,70 @@ class DataSyncService {
     const syncStart = Date.now();
 
     try {
-      logger.info('🔄 Starting match data sync from external API...');
+      logger.info('🔄 Starting REAL data sync from SportsData.io API...');
+      
+      // Test API connection first
+      const health = await this.sportsDataService.healthCheck();
+      if (!health.connected) {
+        throw new Error(`API not connected: ${health.error}`);
+      }
       
       // Fetch matches from API
       const apiMatches = await this.sportsDataService.fetchWorldCupMatches();
       
-       if (!apiMatches || apiMatches.length === 0) {
-      logger.info('Trying alternative match fetching method...');
-      const alternativeMatches = await this.sportsDataService.fetchMatchesAlternative();
-      
-      if (!alternativeMatches || alternativeMatches.length === 0) {
-        logger.warn('No matches received from API');
+      if (!apiMatches || apiMatches.length === 0) {
+        logger.warn('⚠️ No matches received from API');
         return {
-          success: true,
-          message: 'No matches to sync - API may not have 2026 data yet',
+          success: false,
+          message: 'No matches received from SportsData.io API',
           created: 0,
           updated: 0,
-          total: 0
+          total: 0,
+          apiStatus: health
         };
       }
-      
-      apiMatches = alternativeMatches;
-    }
 
-      logger.info(`Processing ${apiMatches.length} matches from API...`);
+      logger.info(`📥 Processing ${apiMatches.length} matches from API...`);
+      
+      // Import Prisma here to avoid circular dependencies
+      const { PrismaClient } = require('@prisma/client');
+      const prisma = new PrismaClient();
       
       let created = 0;
       let updated = 0;
       let errors = 0;
       
       // Process each match
-      for (const matchData of apiMatches) {
+      for (const matchData of apiMatches.slice(0, 50)) { // Limit to 50 matches
         try {
-          // Check if match already exists
-          const existingMatch = await Match.findById(matchData.match_id);
+          // Check if match already exists by match_id
+          const existingMatch = await prisma.match.findUnique({
+            where: { match_id: matchData.match_id }
+          });
           
           if (existingMatch) {
             // Update existing match
-            const updatedMatch = await Match.update(matchData.match_id, matchData);
-            if (updatedMatch) {
-              updated++;
-              logger.debug(`Updated match ${matchData.match_id}: ${matchData.team_a} vs ${matchData.team_b}`);
-            }
+            await prisma.match.update({
+              where: { match_id: matchData.match_id },
+              data: matchData
+            });
+            updated++;
+            logger.debug(`Updated match ${matchData.match_id}: ${matchData.team_a} vs ${matchData.team_b}`);
           } else {
             // Create new match
-            const newMatch = await Match.create(matchData);
-            if (newMatch) {
-              created++;
-              logger.info(`Created match ${matchData.match_id}: ${matchData.team_a} vs ${matchData.team_b}`);
-            }
+            await prisma.match.create({
+              data: matchData
+            });
+            created++;
+            logger.info(`✅ Created match ${matchData.match_id}: ${matchData.team_a} vs ${matchData.team_b}`);
           }
         } catch (matchError) {
           errors++;
           logger.error(`Error processing match ${matchData.match_id}:`, matchError.message);
         }
       }
+      
+      await prisma.$disconnect();
       
       const syncDuration = Date.now() - syncStart;
       this.lastSyncTime = new Date();
@@ -88,16 +96,18 @@ class DataSyncService {
       
       return {
         success: true,
+        message: `Synced ${created} new matches, updated ${updated}`,
         created,
         updated,
         errors,
         total: apiMatches.length,
         duration: syncDuration,
-        lastSync: this.lastSyncTime
+        lastSync: this.lastSyncTime,
+        apiStatus: health
       };
       
     } catch (error) {
-      logger.errorWithContext('DATA_SYNC', error);
+      logger.error('❌ Data sync failed:', error);
       return {
         success: false,
         error: error.message,
@@ -108,46 +118,6 @@ class DataSyncService {
     } finally {
       this.syncInProgress = false;
     }
-  }
-
-  async syncUpcomingMatches() {
-    try {
-      logger.info('🔄 Syncing upcoming matches...');
-      const upcomingMatches = await this.sportsDataService.fetchUpcomingMatches(14); // Next 14 days
-      
-      let synced = 0;
-      for (const match of upcomingMatches) {
-        try {
-          const existing = await Match.findById(match.match_id);
-          if (!existing) {
-            await Match.create(match);
-            synced++;
-          }
-        } catch (error) {
-          logger.error(`Error syncing match ${match.match_id}:`, error.message);
-        }
-      }
-      
-      logger.info(`Synced ${synced} upcoming matches`);
-      return { success: true, synced };
-      
-    } catch (error) {
-      logger.error('Upcoming matches sync failed:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  async getSyncStatus() {
-    return {
-      lastSync: this.lastSyncTime,
-      syncInProgress: this.syncInProgress,
-      serviceHealth: await this.sportsDataService.healthCheck()
-    };
-  }
-
-  async forceSync() {
-    logger.info('🔄 Force sync requested');
-    return await this.syncMatches();
   }
 }
 
