@@ -1,4 +1,4 @@
-// api/index.js - SINGLE FILE COMPLETE SOLUTION
+// api/index.js - FIXED CORS ISSUE
 require('dotenv').config();
 const express = require('express');
 const helmet = require('helmet');
@@ -19,20 +19,74 @@ const API_PREFIX = process.env.API_PREFIX || '/api';
 const API_VERSION = process.env.API_VERSION || 'v4';
 const FULL_API_PATH = `${API_PREFIX}/${API_VERSION}`;
 
-// ==================== MIDDLEWARE ====================
-app.use(helmet());
-app.use(cors({
-  origin: ['*'],
+// ==================== FIXED CORS CONFIGURATION ====================
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'https://world-lpdco43xk-hitmanwikis-projects.vercel.app',
+  'https://world-rust-pi.vercel.app',
+  'https://world-rust-pi.vercel.app/', // Try with trailing slash
+  '*.vercel.app' // Allow all Vercel subdomains
+];
+
+// Configure CORS with proper options
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    // Check if the origin is in the allowed list OR is a Vercel subdomain
+    if (allowedOrigins.includes(origin) || 
+        origin.endsWith('.vercel.app') ||
+        allowedOrigins.some(allowed => allowed.includes(origin))) {
+      return callback(null, true);
+    } else {
+      console.log('⚠️ CORS blocked origin:', origin);
+      return callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-Requested-With',
+    'Accept',
+    'Origin',
+    'Access-Control-Request-Method',
+    'Access-Control-Request-Headers'
+  ],
+  exposedHeaders: ['Content-Length', 'Content-Type'],
+  maxAge: 86400, // 24 hours
+  preflightContinue: false,
+  optionsSuccessStatus: 204
+};
+
+// Apply CORS middleware BEFORE other middleware
+app.use(cors(corsOptions));
+
+// Handle preflight requests
+app.options('*', cors(corsOptions));
+
+// Other middleware
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 
 app.use(compression());
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 
+// Request logging
 app.use((req, res, next) => {
-  logger.info(`${req.method} ${req.url}`);
+  logger.info(`${req.method} ${req.url} - Origin: ${req.headers.origin || 'none'}`);
+  
+  // Add CORS headers to every response
+  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  
   next();
 });
 
@@ -74,25 +128,17 @@ function generateWorldCup2026Matches() {
         matchDate.setHours(10 + (matches.length % 4) * 4);
         matchDate.setMinutes(0);
         
-        const teamA = teams[i];
-        const teamB = teams[j];
-        
-        // Generate odds
-        const oddsTeamA = parseFloat((1.8 + Math.random() * 0.6).toFixed(2));
-        const oddsDraw = parseFloat((3.2 + Math.random() * 0.5).toFixed(2));
-        const oddsTeamB = parseFloat((2.1 + Math.random() * 0.8).toFixed(2));
-        
         matches.push({
           match_id: matchId++,
-          team_a: teamA,
-          team_b: teamB,
+          team_a: teams[i],
+          team_b: teams[j],
           match_date: matchDate,
           venue: venues[Math.floor(Math.random() * venues.length)],
           group_name: groupName,
           status: 'upcoming',
-          odds_team_a: oddsTeamA,
-          odds_draw: oddsDraw,
-          odds_team_b: oddsTeamB
+          odds_team_a: parseFloat((1.8 + Math.random() * 0.6).toFixed(2)),
+          odds_draw: parseFloat((3.2 + Math.random() * 0.5).toFixed(2)),
+          odds_team_b: parseFloat((2.1 + Math.random() * 0.8).toFixed(2))
         });
       }
     }
@@ -108,7 +154,8 @@ function generateWorldCup2026Matches() {
 app.get('/', (req, res) => {
   res.json({
     message: 'CLUTCH Betting Platform API',
-    version: '1.0.0',
+    version: '2.0.0',
+    cors: 'enabled',
     endpoints: [
       '/health',
       `${FULL_API_PATH}/test-endpoints`,
@@ -118,6 +165,17 @@ app.get('/', (req, res) => {
       `${FULL_API_PATH}/init-db`,
       `${FULL_API_PATH}/sync-now`
     ]
+  });
+});
+
+// CORS test endpoint
+app.get('/cors-test', (req, res) => {
+  res.json({
+    success: true,
+    message: 'CORS is working!',
+    origin: req.headers.origin,
+    headers: req.headers,
+    timestamp: new Date().toISOString()
   });
 });
 
@@ -131,7 +189,12 @@ app.get('/health', async (req, res) => {
       status: 'healthy',
       timestamp: new Date().toISOString(),
       database: 'connected',
-      matches_in_database: matchCount
+      matches_in_database: matchCount,
+      cors: {
+        enabled: true,
+        allowed_origins: allowedOrigins,
+        current_origin: req.headers.origin
+      }
     });
   } catch (error) {
     res.status(500).json({
@@ -142,19 +205,17 @@ app.get('/health', async (req, res) => {
 });
 
 // Test API endpoints
-app.get(`${FULL_API_PATH}/test-endpoints`, async (req, res) => {
+app.get(`${FULL_API_PATH}/test-endpoints`, (req, res) => {
   res.json({
     success: true,
     subscription_level: {
       has_match_data_access: false,
-      recommendation: 'Using generated World Cup 2026 data',
-      note: 'Your subscription only includes Competitions, Areas, Venues endpoints'
+      recommendation: 'Using generated World Cup 2026 data'
     },
-    available_endpoints: [
-      'Competitions',
-      'Areas', 
-      'Venues'
-    ]
+    cors: {
+      origin: req.headers.origin,
+      allowed: true
+    }
   });
 });
 
@@ -178,10 +239,9 @@ app.get(`${FULL_API_PATH}/matches`, async (req, res) => {
       success: true,
       data: matches,
       total: total,
-      pagination: {
-        page: page,
-        limit: limit,
-        totalPages: Math.ceil(total / limit)
+      cors: {
+        origin: req.headers.origin,
+        allowed: true
       }
     });
   } catch (error) {
@@ -192,37 +252,36 @@ app.get(`${FULL_API_PATH}/matches`, async (req, res) => {
   }
 });
 
-// Groups endpoint (FIXED FOR FRONTEND)
+// Groups endpoint
 app.get(`${FULL_API_PATH}/matches/groups`, async (req, res) => {
   try {
     const matches = await prisma.match.findMany({
       orderBy: { match_date: 'asc' }
     });
 
-    // Group matches properly
     const groupsMap = {};
-    
     matches.forEach(match => {
       const groupName = match.group_name || 'Other';
-      
       if (!groupsMap[groupName]) {
         groupsMap[groupName] = {
           group_name: groupName,
           matches: []
         };
       }
-      
       groupsMap[groupName].matches.push(match);
     });
 
-    // Convert to array
     const groupsArray = Object.values(groupsMap);
 
     res.json({
       success: true,
-      data: groupsArray,  // Array format for frontend
+      data: groupsArray,
       total_groups: groupsArray.length,
-      total_matches: matches.length
+      total_matches: matches.length,
+      cors: {
+        origin: req.headers.origin,
+        allowed: true
+      }
     });
   } catch (error) {
     res.status(500).json({
@@ -232,36 +291,7 @@ app.get(`${FULL_API_PATH}/matches/groups`, async (req, res) => {
   }
 });
 
-// Upcoming matches
-app.get(`${FULL_API_PATH}/matches/upcoming`, async (req, res) => {
-  try {
-    const limit = parseInt(req.query.limit) || 10;
-    const now = new Date();
-    
-    const matches = await prisma.match.findMany({
-      where: {
-        match_date: {
-          gt: now
-        }
-      },
-      orderBy: { match_date: 'asc' },
-      take: limit
-    });
-
-    res.json({
-      success: true,
-      data: matches,
-      total: matches.length
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// Initialize database (NEW ENDPOINT)
+// Initialize database
 app.get(`${FULL_API_PATH}/init-db`, async (req, res) => {
   try {
     console.log('🧹 Clearing existing matches...');
@@ -272,16 +302,18 @@ app.get(`${FULL_API_PATH}/init-db`, async (req, res) => {
     
     let added = 0;
     for (const match of matches) {
-      await prisma.match.create({
-        data: match
-      });
+      await prisma.match.create({ data: match });
       added++;
     }
     
     res.json({
       success: true,
       message: `Database initialized with ${added} World Cup 2026 matches`,
-      matches_added: added
+      matches_added: added,
+      cors: {
+        origin: req.headers.origin,
+        allowed: true
+      }
     });
   } catch (error) {
     res.status(500).json({
@@ -291,20 +323,15 @@ app.get(`${FULL_API_PATH}/init-db`, async (req, res) => {
   }
 });
 
-// Sync endpoint (for compatibility)
+// Sync endpoint
 app.get(`${FULL_API_PATH}/sync-now`, async (req, res) => {
   try {
-    console.log('🔄 Syncing matches...');
-    
-    // Clear and regenerate
     await prisma.match.deleteMany({});
     const matches = generateWorldCup2026Matches();
     
     let added = 0;
     for (const match of matches) {
-      await prisma.match.create({
-        data: match
-      });
+      await prisma.match.create({ data: match });
       added++;
     }
     
@@ -328,7 +355,6 @@ async function initializeApp() {
     await prisma.$connect();
     console.log('✅ Database connected');
     
-    // Check if we have matches
     const matchCount = await prisma.match.count();
     console.log(`📊 Found ${matchCount} existing matches`);
     
@@ -336,22 +362,19 @@ async function initializeApp() {
       console.log('🎯 Generating initial match data...');
       const matches = generateWorldCup2026Matches();
       
-      for (const match of matches.slice(0, 10)) {
+      for (const match of matches.slice(0, 20)) {
         try {
-          await prisma.match.create({
-            data: match
-          });
+          await prisma.match.create({ data: match });
         } catch (error) {
-          console.log(`⚠️ Skipping match ${match.match_id}: ${error.message}`);
+          // Ignore duplicates
         }
       }
-      
       console.log('✅ Initial matches generated');
     }
     
     console.log('🚀 API is ready!');
-    console.log(`📍 Base URL: https://cup-backend-red.vercel.app`);
-    console.log(`📍 API Path: ${FULL_API_PATH}`);
+    console.log('🌐 CORS configured for:');
+    allowedOrigins.forEach(origin => console.log(`   - ${origin}`));
     
   } catch (error) {
     console.error('❌ Initialization failed:', error);
@@ -364,6 +387,17 @@ initializeApp();
 // ==================== ERROR HANDLING ====================
 app.use((err, req, res, next) => {
   console.error('Server error:', err);
+  
+  // Handle CORS errors
+  if (err.message === 'Not allowed by CORS') {
+    return res.status(403).json({
+      success: false,
+      error: 'CORS Error: Origin not allowed',
+      requested_origin: req.headers.origin,
+      allowed_origins: allowedOrigins
+    });
+  }
+  
   res.status(500).json({
     success: false,
     error: 'Internal server error'
@@ -375,9 +409,11 @@ app.use('*', (req, res) => {
   res.status(404).json({
     success: false,
     error: 'Route not found',
+    requested_url: req.originalUrl,
     available_routes: [
       '/',
       '/health',
+      '/cors-test',
       `${FULL_API_PATH}/test-endpoints`,
       `${FULL_API_PATH}/matches`,
       `${FULL_API_PATH}/matches/groups`,
